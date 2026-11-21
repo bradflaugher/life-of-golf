@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#dbeeff">
+  <meta name="description" content="Life of Golf — An infinite isometric 3D golf puzzle card game with on-device Edge AI Caddie.">
+  <title>Life of Golf — Infinite Golf Puzzle Cards</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="manifest" href="./site.webmanifest">
+  <link rel="stylesheet" href="./src/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- Top HUD -->
+    <header class="top-bar">
+      <div class="brand-cluster">
+        <button id="btn-home" class="brand-pill" title="Life of Golf">
+          <span class="brand-flag" aria-hidden="true">⛳</span>
+          <span class="brand-title">Life of Golf</span>
+        </button>
+        <div class="hole-meta">
+          <span id="hud-hole" class="pill pill-strong">Hole #1</span>
+          <span id="hud-par" class="pill">Par 3</span>
+          <span id="hud-strokes" class="pill">0 strokes</span>
+          <span id="hud-streak" class="pill pill-accent" title="Solved streak">🔥 0</span>
+        </div>
+      </div>
+
+      <div class="action-cluster">
+        <button id="btn-daily" class="icon-btn" title="Daily Course">📅<span class="btn-lbl">Daily</span></button>
+        <button id="btn-difficulty" class="icon-btn" title="Difficulty & Custom Course">⛰️<span id="lbl-diff" class="btn-lbl">Classic</span></button>
+        <button id="btn-caddie" class="icon-btn icon-btn-ai" title="CaddieNet Edge AI (H)">🧠<span class="btn-lbl">Caddie</span></button>
+        <button id="btn-rotate" class="icon-btn" title="Rotate Camera 90° (Q/E)">🔄</button>
+        <button id="btn-theme" class="icon-btn" title="Toggle Light/Dark Theme">🌙</button>
+        <button id="btn-mute" class="icon-btn" title="Toggle Sound (M)">🔊</button>
+      </div>
+    </header>
+
+    <!-- 3D Isometric Stage -->
+    <main class="stage-wrap">
+      <canvas id="game-canvas" aria-label="Isometric 3D Golf Course"></canvas>
+
+      <!-- Subtle floating status / mobile swipe cue -->
+      <div id="stage-toast" class="stage-toast" aria-live="polite"></div>
+
+      <!-- Compact on-screen D-pad fallback for one-handed mobile play when a card is active -->
+      <div id="mobile-dir-pad" class="mobile-dir-pad hidden" aria-label="Shot direction">
+        <button class="dir-btn" data-dir="0" title="North (Up)">▲</button>
+        <div class="dir-row">
+          <button class="dir-btn" data-dir="3" title="West (Left)">◀</button>
+          <span class="dir-center">SWIPE</span>
+          <button class="dir-btn" data-dir="1" title="East (Right)">▶</button>
+        </div>
+        <button class="dir-btn" data-dir="2" title="South (Down)">▼</button>
+      </div>
+    </main>
+
+    <!-- Bottom Thumb-Zone Card Hand & Controls -->
+    <footer class="bottom-dock">
+      <div class="dock-controls">
+        <button id="btn-undo" class="dock-btn" title="Undo last shot (Z)">↩️ Undo</button>
+        <button id="btn-reset" class="dock-btn" title="Reset hole (R)">🔁 Reset</button>
+        <button id="btn-new-hole" class="dock-btn dock-btn-primary" title="Generate new infinite hole (N)">✨ Next Hole</button>
+      </div>
+      <div id="card-hand" class="card-hand" role="listbox" aria-label="Golf Shot Cards"></div>
+    </footer>
+
+    <!-- Difficulty & Custom Course Builder Drawer -->
+    <aside id="drawer-difficulty" class="drawer hidden" aria-label="Course Difficulty & Customizer">
+      <div class="drawer-header">
+        <h2>⛰️ Course &amp; Difficulty</h2>
+        <button class="close-btn" data-close="drawer-difficulty" aria-label="Close">✕</button>
+      </div>
+      <div class="drawer-body">
+        <div class="preset-grid" id="preset-grid"></div>
+
+        <div class="custom-section">
+          <h3>Custom Terrain &amp; Size</h3>
+          <div class="slider-row">
+            <label for="opt-size">Board Size <strong id="val-size">6×6</strong></label>
+            <input id="opt-size" type="range" min="5" max="8" value="6">
+          </div>
+          <div class="slider-row">
+            <label for="opt-elev">Elevation Tiers <strong id="val-elev">2</strong></label>
+            <input id="opt-elev" type="range" min="1" max="3" value="2">
+          </div>
+          <div class="slider-row">
+            <label for="opt-cards">Hand Size <strong id="val-cards">5</strong></label>
+            <input id="opt-cards" type="range" min="3" max="7" value="5">
+          </div>
+
+          <div class="toggle-grid" id="mechanic-toggles">
+            <label class="chip-toggle"><input type="checkbox" data-mech="sand" checked> 🏖️ Sand</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="water" checked> 🌊 Water</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="walls" checked> 🧱 Walls</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="ice" checked> 🧊 Ice</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="mud" checked> 🟤 Mud</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="ramps" checked> 📐 Ramps</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="conveyors"> 💨 Boost</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="springs"> 🔴 Springs</label>
+            <label class="chip-toggle"><input type="checkbox" data-mech="portals"> 🌀 Portals</label>
+          </div>
+
+          <div class="seed-row">
+            <input id="opt-seed" type="text" placeholder="Custom seed (optional)" autocomplete="off">
+            <button id="btn-apply-custom" class="dock-btn dock-btn-primary">Play Custom</button>
+          </div>
+        </div>
+
+        <div class="legend-section">
+          <h3>Terrain Guide</h3>
+          <ul class="legend-list">
+            <li><strong>🏖️ Sand:</strong> Stops rolling balls. Only a Chip/Lob card escapes sand.</li>
+            <li><strong>🧊 Ice:</strong> Frictionless slide until hitting non-ice or an obstacle.</li>
+            <li><strong>🟤 Mud:</strong> Sticky rough — drains extra roll momentum.</li>
+            <li><strong>📐 Ramps:</strong> Climb +1 tier uphill; gain bonus roll downhill.</li>
+            <li><strong>🧱 Walls:</strong> Solid hedges that bounce rolling balls backward (bank shots!).</li>
+            <li><strong>💨 Boost:</strong> Pushes the ball 1 tile in the arrow direction.</li>
+            <li><strong>🔴 Spring:</strong> Launches the ball 2 tiles forward over obstacles.</li>
+            <li><strong>🌀 Portals:</strong> Warps between twin rings, preserving roll momentum.</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- On-Device Edge AI Caddie Drawer -->
+    <aside id="drawer-caddie" class="drawer hidden" aria-label="CaddieNet On-Device Edge AI">
+      <div class="drawer-header">
+        <h2>🧠 CaddieNet <span class="badge-edge">ON-DEVICE AI</span></h2>
+        <button class="close-btn" data-close="drawer-caddie" aria-label="Close">✕</button>
+      </div>
+      <div class="drawer-body">
+        <p class="ai-subtitle" id="caddie-meta">Loading 3,746-param MLP (25 KB) locally in your browser…</p>
+
+        <div class="ai-stats-row">
+          <div class="ai-stat">
+            <span class="ai-stat-label">Est. Strokes V(s)</span>
+            <strong id="caddie-val">—</strong>
+          </div>
+          <div class="ai-stat">
+            <span class="ai-stat-label">Inference</span>
+            <strong id="caddie-ms">—</strong>
+          </div>
+          <div class="ai-stat">
+            <span class="ai-stat-label">BFS Optimal</span>
+            <strong id="caddie-bfs">—</strong>
+          </div>
+        </div>
+
+        <div class="ai-actions">
+          <button id="btn-caddie-play" class="dock-btn dock-btn-primary">🤖 Play Caddie's Top Pick</button>
+          <button id="btn-caddie-hint" class="dock-btn">💡 Exact BFS Hint</button>
+        </div>
+
+        <h3>Live Policy Softmax &amp; Logits</h3>
+        <div id="caddie-moves" class="caddie-moves"></div>
+
+        <h3>Hidden Layer H2 Activations (32 ReLU Units)</h3>
+        <div id="caddie-activations" class="activation-bars" aria-label="Neural layer activations"></div>
+      </div>
+    </aside>
+
+    <!-- Hole Complete Modal -->
+    <div id="modal-win" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="win-title">
+      <div class="modal-card">
+        <div class="win-emoji" id="win-emoji">⛳</div>
+        <h2 id="win-title">Birdie!</h2>
+        <p id="win-detail" class="win-detail">Sunk in 3 strokes (Par 3)</p>
+        <div id="win-badges" class="win-badges"></div>
+        <div class="modal-actions">
+          <button id="btn-share" class="dock-btn">📋 Share</button>
+          <button id="btn-replay-hole" class="dock-btn">🔁 Replay</button>
+          <button id="btn-win-next" class="dock-btn dock-btn-primary">Next Hole →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
