@@ -1,22 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#05061a"/>
-      <stop offset="0.62" stop-color="#2a0f5c"/>
-      <stop offset="1" stop-color="#7a1a8c"/>
-    </linearGradient>
-    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#29e6ff"/>
-      <stop offset="1" stop-color="#ff3fc8"/>
-    </linearGradient>
-  </defs>
-  <rect width="256" height="256" rx="52" fill="url(#sky)"/>
-  <circle cx="128" cy="118" r="70" fill="url(#sun)" opacity="0.85"/>
-  <polygon points="128,128 222,172 128,216 34,172" fill="#12865f" stroke="#5dffc0" stroke-width="6" stroke-linejoin="round"/>
-  <polygon points="34,172 128,216 128,238 34,194" fill="#171c52"/>
-  <polygon points="222,172 128,216 128,238 222,194" fill="#0f1340"/>
-  <ellipse cx="150" cy="172" rx="19" ry="9" fill="#02030c" stroke="#fff3b0" stroke-width="4"/>
-  <rect x="146" y="58" width="8" height="114" rx="4" fill="#ffffff"/>
-  <polygon points="154,60 212,82 154,106" fill="#ff3f6a"/>
-  <circle cx="92" cy="166" r="14" fill="#ffffff"/>
+  <rect width="256" height="256" rx="56" fill="#14432f"/>
+  <polygon points="128,140 214,180 128,220 42,180" fill="#6dbb62"/>
+  <polygon points="42,180 128,220 128,238 42,198" fill="#cfae88"/>
+  <polygon points="214,180 128,220 128,238 214,198" fill="#ad8a66"/>
+  <ellipse cx="146" cy="178" rx="17" ry="8" fill="#0d0b09"/>
+  <rect x="142.5" y="62" width="7" height="116" rx="3.5" fill="#fbfaf4"/>
+  <polygon points="149.5,64 206,84 149.5,108" fill="#e02630"/>
+  <circle cx="96" cy="172" r="13" fill="#ffffff"/>
 </svg>

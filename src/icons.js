@@ -25,9 +25,29 @@ export function icon(name, cls = '') {
   return `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
 
-/** Fill every `[data-icon]` placeholder under `root` with its SVG. */
+/** A laurel wreath, open at the top; `inner` is drawn in the middle (e.g. a pin flag). */
+export function laurel(inner = '') {
+  let leaves = '';
+  for (let i = 0; i < 9; i++) {
+    const deg = 100 + i * 17;
+    const a = (deg * Math.PI) / 180;
+    const x = 60 + Math.cos(a) * 44;
+    const y = 54 + Math.sin(a) * 44;
+    const size = 1 - i * 0.045;
+    leaves += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(9.5 * size).toFixed(1)}" ry="${(3.8 * size).toFixed(1)}" transform="rotate(${deg + 62} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+  }
+  const flag = inner === 'flag'
+    ? '<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M56 78V30"/><path d="M56 31l22 8-22 9z" fill="currentColor"/><path d="M44 80h26"/></g>'
+    : '';
+  return `<svg viewBox="0 0 120 104" fill="currentColor" aria-hidden="true"><g>${leaves}</g><g transform="translate(120 0) scale(-1 1)">${leaves}</g><path d="M52 99q8-5 16 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>${flag}</svg>`;
+}
+
+/** Fill every `[data-icon]` and `[data-laurel]` placeholder under `root` with its SVG. */
 export function hydrateIcons(root = document) {
   root.querySelectorAll('[data-icon]').forEach((el) => {
     el.innerHTML = icon(el.dataset.icon);
+  });
+  root.querySelectorAll('[data-laurel]').forEach((el) => {
+    el.innerHTML = laurel(el.dataset.laurel);
   });
 }

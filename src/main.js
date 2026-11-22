@@ -5,6 +5,7 @@ import {
   DIFFICULTY_PRESETS,
   DIRS,
   generateLevel,
+  hashSeed,
   simulateShot,
   solveLevel,
   formatCardLabel,
@@ -15,11 +16,17 @@ import { CaddieNet } from './caddie.js';
 import { sound } from './audio.js';
 import { icon, hydrateIcons } from './icons.js';
 
+const DAILY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 const $ = (id) => document.getElementById(id);
 
 const state = {
   holeNumber: 1,
   dailyMode: false,
+  dailyDate: null, // YYYY-MM-DD of the daily course being played
+  holeDone: false, // this hole has already been counted toward the streak
+  doneKeys: new Set(), // identities of every completed hole, so replays and reloads never count twice
+  lineClosed: false, // no remaining sequence of cards reaches the cup
   difficultyId: 'classic',
   customConfig: null,
   level: null,
@@ -31,7 +38,7 @@ const state = {
   won: false,
   streak: 0,
   totalSolved: 0,
-  theme: 'dark',
+  theme: 'light',
   caddieEval: null,
   hintMove: null,
 };
@@ -46,8 +53,10 @@ function loadPrefs() {
     state.totalSolved = parseInt(localStorage.getItem('life-of-golf:solved') || '0', 10) || 0;
     state.holeNumber = parseInt(localStorage.getItem('life-of-golf:hole') || '1', 10) || 1;
     state.difficultyId = localStorage.getItem('life-of-golf:diff') || 'classic';
-    const savedTheme = localStorage.getItem('life-of-golf:theme');
-    // 'dark' = Midnight Links (the default), 'light' = Sunset Drive.
+    const done = JSON.parse(localStorage.getItem('life-of-golf:done') || '[]');
+    if (Array.isArray(done)) state.doneKeys = new Set(done.filter((k) => typeof k === 'string'));
+    // 'light' = Ivory (the default), 'dark' = Evergreen.
+    const savedTheme = localStorage.getItem('life-of-golf:palette');
     if (savedTheme === 'dark' || savedTheme === 'light') {
       state.theme = savedTheme;
     }
@@ -60,7 +69,9 @@ function savePrefs() {
     localStorage.setItem('life-of-golf:solved', String(state.totalSolved));
     localStorage.setItem('life-of-golf:hole', String(state.holeNumber));
     localStorage.setItem('life-of-golf:diff', state.difficultyId);
-    localStorage.setItem('life-of-golf:theme', state.theme);
+    // one short hash per hole, never evicted: a hole must not become countable again later
+    localStorage.setItem('life-of-golf:done', JSON.stringify([...state.doneKeys]));
+    localStorage.setItem('life-of-golf:palette', state.theme);
   } catch {}
 }
 
@@ -140,10 +151,23 @@ function todayISO() {
 }
 
 function activeConfig() {
+  // The daily course is always Classic, so everyone plays the same hole.
+  if (state.dailyMode) return DIFFICULTY_PRESETS.classic;
   if (state.difficultyId === 'custom' && state.customConfig) {
     return state.customConfig;
   }
   return DIFFICULTY_PRESETS[state.difficultyId] || DIFFICULTY_PRESETS.classic;
+}
+
+/**
+ * A hole's identity: a hash of what was actually generated (layout, tee, cup and hand), so the same
+ * hole is recognised however it was reached and two different custom courses never share one.
+ */
+function holeKey(level) {
+  const layout = level.grid.map((row) => row.map((c) => `${c.terrain}${c.elev}`).join(',')).join(';');
+  const body = `${level.seed}|${layout}|${level.start.x},${level.start.y}|${level.cup.x},${level.cup.y}|${JSON.stringify(level.cards)}`;
+  // two independent 32-bit hashes, so an accidental collision is not a practical concern
+  return `${hashSeed(body).toString(36)}-${hashSeed(`${body}#`).toString(36)}`;
 }
 
 function startHole(seedOverride = null) {
@@ -153,12 +177,26 @@ function startHole(seedOverride = null) {
   state.history = [];
   state.selectedCard = null;
   state.hintMove = null;
+  setLineClosed(false);
   $('modal-win').classList.add('hidden');
+  const prevKey = state.level ? holeKey(state.level) : null;
+  const prevDone = state.holeDone;
 
   const cfg = activeConfig();
-  const seed = seedOverride || (state.dailyMode ? `daily-${todayISO()}` : `hole-${state.holeNumber}-${cfg.id || 'custom'}`);
+  if (state.dailyMode && !state.dailyDate) state.dailyDate = todayISO();
+  const seed = seedOverride || (state.dailyMode ? `daily-${state.dailyDate}` : `hole-${state.holeNumber}-${cfg.id || 'custom'}`);
   state.level = generateLevel(seed, cfg);
   state.ballPos = { ...state.level.start };
+
+  // Walking away from an unsolved hole breaks the streak, whichever button did it (skip, daily, a new
+  // course). Reloading the very same hole is not walking away, and a hole already sunk never counts again.
+  const key = holeKey(state.level);
+  if (prevKey && prevKey !== key && !prevDone && state.streak > 0) {
+    state.streak = 0;
+    savePrefs();
+    showToast('Hole left unfinished · streak reset', 2400);
+  }
+  state.holeDone = state.doneKeys.has(key);
   delete $('card-hand').dataset.handKey; // always deal a fresh hand for a new hole
 
   renderer.loadLevel(state.level, state.ballPos);
@@ -176,13 +214,12 @@ function renderHUD() {
   const lvl = state.level;
   if (!lvl) return;
   if (state.dailyMode) {
-    const seedDate = /^daily-\d{4}-(\d{2})-(\d{2})$/.exec(String(lvl.seed));
-    const d = seedDate ? `${seedDate[1]}·${seedDate[2]}` : todayISO().slice(5).replace('-', '·');
+    const [, month, day] = (state.dailyDate || todayISO()).split('-');
     $('hud-hole-k').textContent = 'Daily';
-    setText('hud-hole', d);
+    setText('hud-hole', `${Number(day)} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(month) - 1] || ''}`);
   } else {
     $('hud-hole-k').textContent = 'Hole';
-    setText('hud-hole', String(state.holeNumber).padStart(2, '0'));
+    setText('hud-hole', String(state.holeNumber));
   }
   $('hud-hole').classList.toggle('date', state.dailyMode);
   setText('hud-par', String(lvl.par));
@@ -191,7 +228,7 @@ function renderHUD() {
   $('hud-strokes').classList.toggle('over', strokes > lvl.par);
   setText('hud-streak', String(state.streak), true);
   $('hud-streak').classList.toggle('zero', state.streak === 0);
-  $('lbl-diff').textContent = state.difficultyId === 'custom' ? 'Custom' : (DIFFICULTY_PRESETS[state.difficultyId]?.label || 'Classic');
+  $('lbl-diff').textContent = activeConfig().label || 'Custom';
   $('btn-undo').disabled = state.history.length === 0 || state.animating;
 }
 
@@ -284,6 +321,14 @@ async function playDirection(dirId) {
   const card = state.level.cards[ci];
   const sim = simulateShot(state.level, state.ballPos, card, dirId);
 
+  // A putt can't leave a bunker. Don't burn the card on a shot that goes nowhere.
+  if (sim.stuckInSand) {
+    sound.sand();
+    buzz(18);
+    showToast('Bunkered · only a chip, pitch, spin or lob gets out', 2600, 'warn');
+    return;
+  }
+
   // Push undo snapshot
   state.history.push({
     pos: { ...state.ballPos },
@@ -318,11 +363,9 @@ async function playDirection(dirId) {
   state.animating = false;
 
   if (sim.hazard === 'water') {
-    showToast('Water hazard · ball returned', 2400, 'warn');
+    showToast('In the water · ball returned', 2400, 'warn');
   } else if (sim.hazard === 'void') {
     showToast('Off the edge · ball returned', 2400, 'warn');
-  } else if (sim.stuckInSand) {
-    showToast('Bunkered · only a chip or lob gets out', 2600, 'warn');
   }
 
   if (sim.won) {
@@ -339,14 +382,56 @@ async function playDirection(dirId) {
     selectCard(nextCard, true);
   } else {
     renderHand();
-    showToast('Out of cards · undo or reset to try another line', 3200, 'warn');
   }
+
+  // Tell the player as soon as the cup is out of reach, rather than letting them play out a dead hand.
+  const reachable = remainingSolution();
+  setLineClosed(!reachable);
+  if (!reachable) {
+    showToast(nextCard === -1 ? 'Out of cards · undo to try another line' : 'No way home from here · undo to try another line', 3400, 'warn');
+  }
+}
+
+/** Shortest solution from the current ball position with the unused cards, or null. */
+function remainingSolution() {
+  const cards = [];
+  const origIdx = [];
+  state.level.cards.forEach((c, i) => {
+    if (!(state.usedMask & (1 << i))) {
+      cards.push(c);
+      origIdx.push(i);
+    }
+  });
+  if (cards.length === 0) return null;
+  const sol = solveLevel({ ...state.level, start: { ...state.ballPos }, cards }, 3500);
+  return sol && sol.length > 0 ? sol.map((m) => ({ cardIndex: origIdx[m.cardIndex], dir: m.dir })) : null;
+}
+
+function setLineClosed(closed) {
+  state.lineClosed = closed;
+  $('btn-undo').classList.toggle('attn', closed);
+}
+
+/** Move on to the next hole. startHole breaks the streak if this one was left unsolved. */
+function advanceHole() {
+  if (state.animating) return;
+  state.dailyMode = false;
+  state.dailyDate = null;
+  state.holeNumber += 1;
+  savePrefs();
+  startHole();
 }
 
 function handleWin() {
   state.won = true;
-  state.streak += 1;
-  state.totalSolved += 1;
+  // A hole counts once, however many times it is replayed or undone.
+  if (!state.holeDone) {
+    state.holeDone = true;
+    state.doneKeys.add(holeKey(state.level));
+    state.streak += 1;
+    state.totalSolved += 1;
+  }
+  setLineClosed(false);
   savePrefs();
   renderHUD();
   renderHand();
@@ -371,9 +456,10 @@ function handleWin() {
   }
 
   document.querySelector('#modal-win .modal-card').dataset.result = result;
-  $('win-emoji').innerHTML = `<span>${strokes === 1 ? 'ACE' : diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `−${-diff}`}</span>`;
+  $('win-emoji').textContent = strokes === 1 ? 'Ace' : diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `−${-diff}`;
+  $('win-emoji').classList.toggle('long', strokes === 1);
   $('win-title').textContent = title;
-  $('win-detail').textContent = `${strokes} ${strokes === 1 ? 'stroke' : 'strokes'} · optimal par ${par}`;
+  $('win-detail').textContent = `${strokes} ${strokes === 1 ? 'stroke' : 'strokes'} on a par ${par}`;
   const badges = $('win-badges');
   badges.innerHTML = '';
   [
@@ -403,6 +489,8 @@ function undoShot() {
   const tile = state.level.grid[state.ballPos.y][state.ballPos.x];
   renderer.placeBallImmediate(state.ballPos.x, state.ballPos.y, tile.elev);
   sound.undo();
+  // Undo can land back in a position that was already a dead end, so check rather than assume.
+  setLineClosed(!remainingSolution());
   evaluateCaddie();
   renderHUD();
   selectCard(prev.cardIndex, true);
@@ -419,6 +507,7 @@ function resetHole() {
   const tile = state.level.grid[state.ballPos.y][state.ballPos.x];
   renderer.placeBallImmediate(state.ballPos.x, state.ballPos.y, tile.elev);
   sound.undo();
+  setLineClosed(false);
   evaluateCaddie();
   renderHUD();
   if (state.level.cards.length > 0) selectCard(0, true);
@@ -491,7 +580,7 @@ function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   $('btn-theme').innerHTML = icon(t === 'dark' ? 'moon' : 'sun');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', t === 'dark' ? '#05061a' : '#1c0b3f');
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#0c241b' : '#f3eee3');
   if (renderer) renderer.applyTheme(t);
   savePrefs();
 }
@@ -506,13 +595,14 @@ function buildPresetGrid() {
     btn.addEventListener('click', () => {
       state.difficultyId = p.id;
       state.dailyMode = false;
+      state.dailyDate = null;
       state.customConfig = null;
       syncCustomControlsFromPreset(p);
       savePrefs();
       buildPresetGrid();
       $('drawer-difficulty').classList.add('hidden');
       startHole();
-      showToast(`${p.label} course`);
+      showToast(`${p.label} course`, 1800, 'gold');
     });
     grid.appendChild(btn);
   });
@@ -523,8 +613,10 @@ function syncCustomControlsFromPreset(p) {
   $('val-size').textContent = `${p.size}×${p.size}`;
   $('opt-elev').value = p.maxElev;
   $('val-elev').textContent = String(p.maxElev);
-  $('opt-cards').value = p.cardCount;
-  $('val-cards').textContent = String(p.cardCount);
+  // "Longest Par" shows the course's par limit, not its hand size
+  const longest = Math.min(6, Math.max(3, p.maxPar ?? p.cardCount));
+  $('opt-cards').value = longest;
+  $('val-cards').textContent = String(longest);
   document.querySelectorAll('#mechanic-toggles input[data-mech]').forEach((cb) => {
     cb.checked = Boolean(p.mechanics[cb.dataset.mech]);
   });
@@ -542,18 +634,13 @@ function bindUI() {
 
   $('btn-undo').addEventListener('click', undoShot);
   $('btn-reset').addEventListener('click', resetHole);
-  $('btn-new-hole').addEventListener('click', () => {
-    state.dailyMode = false;
-    state.holeNumber += 1;
-    savePrefs();
-    startHole();
-  });
+  $('btn-new-hole').addEventListener('click', advanceHole);
 
   $('btn-daily').addEventListener('click', () => {
     state.dailyMode = true;
-    state.difficultyId = 'classic';
-    startHole(`daily-${todayISO()}`);
-    showToast(`Daily course · ${todayISO()}`, 2200, 'gold');
+    state.dailyDate = todayISO();
+    startHole();
+    showToast("Today's daily course", 2200, 'gold');
   });
 
   $('btn-difficulty').addEventListener('click', () => {
@@ -575,7 +662,7 @@ function bindUI() {
 
   $('btn-theme').addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
-    showToast(state.theme === 'dark' ? 'Midnight Links' : 'Sunset Drive', 1400);
+    showToast(state.theme === 'dark' ? 'Evergreen' : 'Ivory', 1400);
   });
 
   const syncMute = () => {
@@ -604,17 +691,19 @@ function bindUI() {
     });
     const size = parseInt($('opt-size').value, 10);
     const maxElev = parseInt($('opt-elev').value, 10);
-    const cardCount = parseInt($('opt-cards').value, 10);
+    const maxPar = parseInt($('opt-cards').value, 10);
+    const cardCount = Math.min(6, maxPar + 1); // room for one decoy card
     state.difficultyId = 'custom';
     state.dailyMode = false;
+    state.dailyDate = null;
     state.customConfig = {
       id: 'custom',
       label: 'Custom',
       size,
       maxElev,
       cardCount,
-      minPar: Math.min(3, Math.max(2, cardCount - 2)),
-      maxPar: cardCount,
+      minPar: Math.min(3, Math.max(2, maxPar - 1)),
+      maxPar,
       decoyCards: 1,
       mechanics,
     };
@@ -637,24 +726,16 @@ function bindUI() {
 
   $('btn-caddie-hint').addEventListener('click', () => {
     if (!state.level || state.animating || state.won) return;
-    const remCards = [];
-    const origIdx = [];
-    state.level.cards.forEach((c, i) => {
-      if (!(state.usedMask & (1 << i))) {
-        remCards.push(c);
-        origIdx.push(i);
-      }
-    });
-    const sol = solveLevel({ ...state.level, start: { ...state.ballPos }, cards: remCards }, 3500);
-    if (!sol || sol.length === 0) {
-      showToast('No line from here · undo or reset', 2500, 'warn');
+    const sol = remainingSolution();
+    if (!sol) {
+      showToast('No way home from here · undo or reset', 2500, 'warn');
       return;
     }
-    const move = { cardIndex: origIdx[sol[0].cardIndex], dir: sol[0].dir, source: 'BFS' };
+    const move = { cardIndex: sol[0].cardIndex, dir: sol[0].dir, source: 'Hint' };
     state.hintMove = move;
     $('drawer-caddie').classList.add('hidden');
     selectCard(move.cardIndex);
-    showToast(`Optimal: ${formatCardName(state.level.cards[move.cardIndex])} ${formatCardLabel(state.level.cards[move.cardIndex])} along the amber arrow`, 2800, 'gold');
+    showToast(`Best line: ${formatCardName(state.level.cards[move.cardIndex])} ${formatCardLabel(state.level.cards[move.cardIndex])} along the gold arrow`, 2800, 'gold');
   });
 
   // Diagonal pad: each button's screen vector maps onto the nearest isometric axis
@@ -667,20 +748,17 @@ function bindUI() {
   });
 
   // Victory modal buttons
-  $('btn-win-next').addEventListener('click', () => {
-    state.dailyMode = false;
-    state.holeNumber += 1;
-    savePrefs();
-    startHole();
-  });
+  $('btn-win-next').addEventListener('click', advanceHole);
 
   $('btn-replay-hole').addEventListener('click', resetHole);
 
   $('btn-share').addEventListener('click', async () => {
     const strokes = state.history.length;
     const par = state.level.par;
-    const url = `${location.origin}${location.pathname}?seed=${encodeURIComponent(state.level.seed)}&diff=${encodeURIComponent(state.difficultyId)}`;
-    const text = `⛳ Life of Golf · ${state.dailyMode ? `Daily ${todayISO()}` : `Hole #${state.holeNumber}`}\nSunk in ${strokes} (Par ${par}) · 🔥 Streak ${state.streak}\n${url}`;
+    const url = state.dailyMode
+      ? `${location.origin}${location.pathname}?daily=${state.dailyDate}`
+      : `${location.origin}${location.pathname}?seed=${encodeURIComponent(state.level.seed)}&diff=${encodeURIComponent(state.difficultyId)}`;
+    const text = `⛳ Life of Golf · ${state.dailyMode ? `Daily ${state.dailyDate}` : `Hole #${state.holeNumber}`}\nSunk in ${strokes} (Par ${par}) · 🔥 Streak ${state.streak}\n${url}`;
     try {
       await navigator.clipboard.writeText(text);
       showToast('Scorecard copied', 2000, 'gold');
@@ -712,10 +790,7 @@ function bindUI() {
     } else if (e.key === 'r' || e.key === 'R') {
       resetHole();
     } else if (e.key === 'n' || e.key === 'N') {
-      state.dailyMode = false;
-      state.holeNumber += 1;
-      savePrefs();
-      startHole();
+      advanceHole();
     } else if (e.key === 'q' || e.key === 'Q') {
       renderer.rotateCamera(-1);
     } else if (e.key === 'e' || e.key === 'E') {
@@ -762,8 +837,9 @@ async function init() {
   if (diffParam && DIFFICULTY_PRESETS[diffParam]) {
     state.difficultyId = diffParam;
   }
-  if (dailyParam) {
+  if (dailyParam && DAILY_RE.test(dailyParam)) {
     state.dailyMode = true;
+    state.dailyDate = dailyParam;
   }
 
   renderer = new GolfRenderer3D($('game-canvas'), {
@@ -783,7 +859,7 @@ async function init() {
     console.warn('CaddieNet failed to load:', err);
   }
 
-  startHole(dailyParam ? `daily-${dailyParam}` : seedParam || null);
+  startHole(state.dailyMode ? null : seedParam || null);
   updateInsets();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateInsets);
 
@@ -795,7 +871,7 @@ async function init() {
       seen = localStorage.getItem('life-of-golf:seen-intro') === '1';
       localStorage.setItem('life-of-golf:seen-intro', '1');
     } catch {}
-    if (!seen) showToast('Pick a card · then swipe or tap an arrow', 4200);
+    if (!seen) showToast('Pick a card, then swipe or tap an arrow', 4200);
   }, 650);
 
   // Expose debug handle for automated playtesting
