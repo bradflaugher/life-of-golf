@@ -159,6 +159,7 @@ function startHole(seedOverride = null) {
   const seed = seedOverride || (state.dailyMode ? `daily-${todayISO()}` : `hole-${state.holeNumber}-${cfg.id || 'custom'}`);
   state.level = generateLevel(seed, cfg);
   state.ballPos = { ...state.level.start };
+  delete $('card-hand').dataset.handKey; // always deal a fresh hand for a new hole
 
   renderer.loadLevel(state.level, state.ballPos);
   evaluateCaddie();
@@ -203,7 +204,7 @@ function renderHand() {
   }
 
   // Build the hand once per hole (with a deal-in), then patch classes so CSS transitions can run.
-  const handKey = `${lvl.seed}|${lvl.cards.length}`;
+  const handKey = `${lvl.seed}|${JSON.stringify(lvl.cards)}`;
   if (container.dataset.handKey !== handKey) {
     container.dataset.handKey = handKey;
     container.innerHTML = '';
