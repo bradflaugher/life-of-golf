@@ -13,6 +13,12 @@
   Cross-Origin-Opener-Policy: same-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()
 
+# App code and styles — revalidate via ETag so deploys take effect immediately.
+/src/*.js
+  Cache-Control: public, max-age=0, must-revalidate
+/src/*.css
+  Cache-Control: public, max-age=0, must-revalidate
+
 # CaddieNet-v1 edge model weights — revalidate via ETag so updated models take effect cleanly.
 /models/*
   Cache-Control: public, max-age=3600, must-revalidate
