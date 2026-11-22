@@ -24,6 +24,7 @@ const state = {
   dailyMode: false,
   dailyDate: null, // YYYY-MM-DD of the daily course being played
   holeDone: false, // this hole has already been counted toward the streak
+  doneKeys: [], // identities of recently completed holes, so replays and reloads never count twice
   lineClosed: false, // no remaining sequence of cards reaches the cup
   difficultyId: 'classic',
   customConfig: null,
@@ -51,7 +52,9 @@ function loadPrefs() {
     state.totalSolved = parseInt(localStorage.getItem('life-of-golf:solved') || '0', 10) || 0;
     state.holeNumber = parseInt(localStorage.getItem('life-of-golf:hole') || '1', 10) || 1;
     state.difficultyId = localStorage.getItem('life-of-golf:diff') || 'classic';
-    // 'light' = Morning Round (the default), 'dark' = Golden Hour.
+    const done = JSON.parse(localStorage.getItem('life-of-golf:done') || '[]');
+    if (Array.isArray(done)) state.doneKeys = done.filter((k) => typeof k === 'string').slice(-60);
+    // 'light' = Ivory (the default), 'dark' = Evergreen.
     const savedTheme = localStorage.getItem('life-of-golf:palette');
     if (savedTheme === 'dark' || savedTheme === 'light') {
       state.theme = savedTheme;
@@ -65,6 +68,7 @@ function savePrefs() {
     localStorage.setItem('life-of-golf:solved', String(state.totalSolved));
     localStorage.setItem('life-of-golf:hole', String(state.holeNumber));
     localStorage.setItem('life-of-golf:diff', state.difficultyId);
+    localStorage.setItem('life-of-golf:done', JSON.stringify(state.doneKeys.slice(-60)));
     localStorage.setItem('life-of-golf:palette', state.theme);
   } catch {}
 }
@@ -153,6 +157,11 @@ function activeConfig() {
   return DIFFICULTY_PRESETS[state.difficultyId] || DIFFICULTY_PRESETS.classic;
 }
 
+/** A hole's identity: the same seed on the same course is the same hole, however it was reached. */
+function holeKey(level) {
+  return `${level.seed}|${level.difficulty}|${level.width}x${level.height}|${level.par}|${JSON.stringify(level.cards)}`;
+}
+
 function startHole(seedOverride = null) {
   state.animating = false;
   state.won = false;
@@ -160,15 +169,26 @@ function startHole(seedOverride = null) {
   state.history = [];
   state.selectedCard = null;
   state.hintMove = null;
-  state.holeDone = false;
   setLineClosed(false);
   $('modal-win').classList.add('hidden');
+  const prevKey = state.level ? holeKey(state.level) : null;
+  const prevDone = state.holeDone;
 
   const cfg = activeConfig();
   if (state.dailyMode && !state.dailyDate) state.dailyDate = todayISO();
   const seed = seedOverride || (state.dailyMode ? `daily-${state.dailyDate}` : `hole-${state.holeNumber}-${cfg.id || 'custom'}`);
   state.level = generateLevel(seed, cfg);
   state.ballPos = { ...state.level.start };
+
+  // Walking away from an unsolved hole breaks the streak, whichever button did it (skip, daily, a new
+  // course). Reloading the very same hole is not walking away, and a hole already sunk never counts again.
+  const key = holeKey(state.level);
+  if (prevKey && prevKey !== key && !prevDone && state.streak > 0) {
+    state.streak = 0;
+    savePrefs();
+    showToast('Hole left unfinished · streak reset', 2400);
+  }
+  state.holeDone = state.doneKeys.includes(key);
   delete $('card-hand').dataset.handKey; // always deal a fresh hand for a new hole
 
   renderer.loadLevel(state.level, state.ballPos);
@@ -384,14 +404,9 @@ function setLineClosed(closed) {
   $('btn-undo').classList.toggle('attn', closed);
 }
 
-/** Move on to the next hole. Leaving a hole unsolved breaks the streak. */
+/** Move on to the next hole. startHole breaks the streak if this one was left unsolved. */
 function advanceHole() {
   if (state.animating) return;
-  const skipped = !state.holeDone;
-  if (skipped && state.streak > 0) {
-    state.streak = 0;
-    showToast('Hole skipped · streak reset', 2200);
-  }
   state.dailyMode = false;
   state.dailyDate = null;
   state.holeNumber += 1;
@@ -404,6 +419,7 @@ function handleWin() {
   // A hole counts once, however many times it is replayed or undone.
   if (!state.holeDone) {
     state.holeDone = true;
+    state.doneKeys.push(holeKey(state.level));
     state.streak += 1;
     state.totalSolved += 1;
   }
@@ -465,7 +481,8 @@ function undoShot() {
   const tile = state.level.grid[state.ballPos.y][state.ballPos.x];
   renderer.placeBallImmediate(state.ballPos.x, state.ballPos.y, tile.elev);
   sound.undo();
-  setLineClosed(false);
+  // Undo can land back in a position that was already a dead end, so check rather than assume.
+  setLineClosed(!remainingSolution());
   evaluateCaddie();
   renderHUD();
   selectCard(prev.cardIndex, true);
@@ -553,7 +570,9 @@ function evaluateCaddie() {
 function applyTheme(t) {
   state.theme = t;
   document.documentElement.setAttribute('data-theme', t);
-  $('btn-theme').innerHTML = icon(t === 'dark' ? 'sunset' : 'sun');
+  $('btn-theme').innerHTML = icon(t === 'dark' ? 'moon' : 'sun');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#0c241b' : '#f3eee3');
   if (renderer) renderer.applyTheme(t);
   savePrefs();
 }
@@ -586,8 +605,10 @@ function syncCustomControlsFromPreset(p) {
   $('val-size').textContent = `${p.size}×${p.size}`;
   $('opt-elev').value = p.maxElev;
   $('val-elev').textContent = String(p.maxElev);
-  $('opt-cards').value = p.cardCount;
-  $('val-cards').textContent = String(p.cardCount);
+  // "Longest Par" shows the course's par limit, not its hand size
+  const longest = Math.min(6, Math.max(3, p.maxPar ?? p.cardCount));
+  $('opt-cards').value = longest;
+  $('val-cards').textContent = String(longest);
   document.querySelectorAll('#mechanic-toggles input[data-mech]').forEach((cb) => {
     cb.checked = Boolean(p.mechanics[cb.dataset.mech]);
   });
@@ -633,7 +654,7 @@ function bindUI() {
 
   $('btn-theme').addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
-    showToast(state.theme === 'dark' ? 'Golden hour' : 'Morning round', 1400);
+    showToast(state.theme === 'dark' ? 'Evergreen' : 'Ivory', 1400);
   });
 
   const syncMute = () => {
@@ -662,7 +683,8 @@ function bindUI() {
     });
     const size = parseInt($('opt-size').value, 10);
     const maxElev = parseInt($('opt-elev').value, 10);
-    const cardCount = parseInt($('opt-cards').value, 10);
+    const maxPar = parseInt($('opt-cards').value, 10);
+    const cardCount = Math.min(6, maxPar + 1); // room for one decoy card
     state.difficultyId = 'custom';
     state.dailyMode = false;
     state.dailyDate = null;
@@ -672,8 +694,8 @@ function bindUI() {
       size,
       maxElev,
       cardCount,
-      minPar: Math.min(3, Math.max(2, cardCount - 2)),
-      maxPar: cardCount,
+      minPar: Math.min(3, Math.max(2, maxPar - 1)),
+      maxPar,
       decoyCards: 1,
       mechanics,
     };

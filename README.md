@@ -3,10 +3,10 @@
 **[Play now on GitHub Pages](https://bradflaugher.github.io/life-of-golf/)**
 
 <p align="center">
-  <img src="docs/gameplay.png" width="100%" alt="Life of Golf on desktop and phone: a hand-painted meadow golf course floating above a sunlit valley, framed by a dark mahogany and gilt clubhouse HUD with a hand of ivory shot cards.">
+  <img src="docs/gameplay.png" width="100%" alt="Life of Golf on desktop and phone: a clean isometric model of a golf hole floating over a calm ivory backdrop, with a row of white shot cards below and a typographic scorecard above.">
 </p>
 
-An infinite isometric 3D golf puzzle card game inspired by *Golf Peaks*, set on hand-painted meadow courses and framed like an old clubhouse, powered by a tiny on-device neural network (**`CaddieNet-v1`**, 3,746 parameters, 25 KB) running **100% locally in your browser** with zero servers and zero data collection.
+An infinite isometric 3D golf puzzle card game inspired by *Golf Peaks*, played on small floating model courses, with a quiet, typographic interface, powered by a tiny on-device neural network (**`CaddieNet-v1`**, 3,746 parameters, 25 KB) running **100% locally in your browser** with zero servers and zero data collection.
 
 ---
 
@@ -25,10 +25,10 @@ An infinite isometric 3D golf puzzle card game inspired by *Golf Peaks*, set on 
   - **Coral Spring Pads** (launch 2 tiles over walls and water)
   - **Twin Warp Portals** (preserve roll momentum across the island)
 - **5 Shot Card Types:** Putt/Roll (`1–4`), Chip (`1–3`), Pitch (`1+1`, `2+1`, `1+2`), Backspin (`2↩`, `3↩`), and Super Lob (`2↑`).
-- **Mobile-First Controls:** The course fills the screen between two mahogany rails. Tap a card in the baize tray, then **swipe anywhere**, **tap a painted chevron**, **tap the tile the shot lands on**, or use the **diagonal pad** (one button per isometric direction). Every direction previews its dotted flight path and landing ring. Landscape phones get the tray as a side rail. Full keyboard support (`1–7`, Arrows/WASD, `Z` undo, `R` reset, `N` skip, `Q/E` rotate 90°, `H` AI Caddie).
+- **Mobile-First Controls:** The course fills the screen and the interface floats over it. Tap a card, then **swipe anywhere**, **tap a chevron**, **tap the tile the shot lands on**, or use the **diagonal pad** (one button per isometric direction). Every direction previews its dotted flight path and landing ring. Landscape phones get the hand as a side rail. Full keyboard support (`1–7`, Arrows/WASD, `Z` undo, `R` reset, `N` skip, `Q/E` rotate 90°, `H` AI Caddie).
 - **Fair Play Rules:** A hole counts toward your streak once, however often you replay it; skipping an unsolved hole resets the streak. The game tells you as soon as the cup is out of reach instead of letting you play out a dead hand, and a putt from a bunker is refused rather than wasting the card.
 - **🧠 CaddieNet-v1 (On-Device Edge AI):** A compact `24 → 64 → 32 → 2` Policy+Value MLP trained on BFS-solved holes (`scripts/train_caddie.mjs`). Runs real `Float32Array` forward passes in `< 1 ms` per board to display live move softmax probabilities, raw logits (`z`), predicted strokes-to-cup `V(s)`, and 32 hidden-layer ReLU activations.
-- **A Painted Meadow, Real Game Pieces, a Regal Frame:** Turf, ponds with lily pads, raked bunkers, boxwood hedges, toadstool springs and standing-stone rings are built from dabs of broken colour and finished with an oil-paint filter: the far valley fully painted, the course lightly brushed. The ball, cup, pin and flag are the opposite: physically shaded and drawn sharp over the finished painting (a glossy dimpled ball, a sunk cup liner, a fibreglass stick, a cloth flag that waves). Two times of day: **Morning Round** and **Golden Hour**. The HUD is dark grained mahogany with carved gilt mouldings, a green enamel scoreboard in gold leaf, medallion buttons, crisp ivory shot cards on baize, and a win charter with ribbon and wax seal. The paint filter and glow step down by themselves on slow devices (`?fx=low` or `?fx=high` forces it). Self-hosted Playfair Display and EB Garamond (SIL OFL, `src/fonts/`), inline SVG icons, soft synthesized club sounds with distant birdsong, and light haptics.
+- **Quiet and Rich:** The course is a softly lit model: flat confident colour, real soft shadows, one calm backdrop, nothing filtered. The ball, cup, pin and flag are physically shaded (a glossy dimpled ball, a fibreglass stick, a cloth flag that waves) so they read as real objects on it. The interface is ivory, deep green and hairline gold, set in Playfair Display and EB Garamond with room to breathe. Two moods: **Ivory** (daylight) and **Evergreen** (the model under a lamp in a dark green room). Render density steps down by itself on slow devices (`?fx=low` or `?fx=high` forces it). Self-hosted fonts (SIL OFL, `src/fonts/`), inline SVG icons, soft synthesized club sounds with distant birdsong, and light haptics.
 
 ---
 

@@ -1,15 +1,10 @@
-// Life of Golf — Three.js isometric renderer: a hand-painted meadow course floating above a sunlit valley.
-// Textures are built from dabs of broken colour and the frame is finished with an oil-paint filter.
+// Life of Golf — Three.js isometric renderer.
+// A quiet, softly lit diorama: flat confident colour, real shadows, one calm backdrop.
+// The ball, cup, pin and flag are physically shaded so they read as real objects on the model.
 
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { Pass } from 'three/addons/postprocessing/Pass.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   DIRS,
   TERRAIN,
@@ -23,107 +18,94 @@ const ELEV_STEP = 0.42;
 const BASE_THICKNESS = 0.65;
 const CAP_H = 0.1;
 const BALL_R = 0.2;
-
-// Render layers. The land is painted; the game pieces are rendered realistically and left unpainted.
-const LAYER_WORLD = 0; // terrain, props, backdrop: goes through the paint filter
-const LAYER_PIECES = 1; // ball, pin, flag, aim guides: physically shaded, drawn sharp over the finished painting
-const LAYER_FX = 2; // soft see-through effects: painted, but never hide a game piece
 const CAM_RADIUS = 16;
 const CAM_Y = 12.2;
 const CAM_ELEV_SIN = CAM_Y / Math.hypot(CAM_RADIUS, CAM_Y);
 const CAM_ELEV_COS = CAM_RADIUS / Math.hypot(CAM_RADIUS, CAM_Y);
 
-// Aim-guide paint: chalk white for a clean shot, gold for the cup or a hint, coral for trouble.
-const PAINT = {
-  good: 0xfffdf2,
-  gold: 0xf5c542,
-  bad: 0xe5533d,
-  idle: 0x8fa08c,
-  outline: 0x1d3b2a,
+// Aim guides: white for a clean shot, gold for the cup or a hint, coral for trouble.
+const GUIDE = {
+  good: 0xffffff,
+  gold: 0xe9b949,
+  bad: 0xe2553f,
+  idle: 0x9aa79e,
+  key: 0x14301f,
 };
 
 const THEMES = {
-  // "Morning Round": clear blue sky, sun on the meadow.
+  // "Ivory": the model in soft daylight on warm paper.
   light: {
-    skyTop: '#4f9fe6',
-    skyMid: '#9fd2f5',
-    skyHaze: '#fdf3d3',
-    sunGlow: '#fff3c4',
-    cloud: '#ffffff',
-    cloudShade: '#d9e9f7',
-    hillFar: '#8fb4dc',
-    hillMid: '#6fb090',
-    hillNear: '#74b56f',
-    valley: '#9fd07a',
-    mist: '#eef5df',
-    hemiSky: 0xd8ecff,
-    hemiGround: 0xa9a4dc,
-    hemiInt: 1.5,
-    sunColor: 0xfff0cf,
-    sunInt: 2.5,
-    rimColor: 0xbfe0ff,
-    rimInt: 0.5,
-    turfA: '#8fd65e',
-    turfB: '#6fb84c',
-    turfDark: '#5fa640',
-    ramp: '#93d968',
-    soil: '#c79a66',
-    soilDark: '#a67c4f',
-    rock: 0x9c8468,
-    hedge: '#3f8f45',
-    hedgeDark: '#2f7438',
-    sand: '#f5e4ae',
-    sandLine: '#dcc586',
-    water: '#58bfe8',
-    waterDeep: '#3a9fd6',
-    ice: '#dff5fd',
-    mud: '#8a6645',
-    mudDark: '#6d4e33',
-    plank: '#b9814e',
-    plankDark: '#93613a',
-    cloud3d: 0xffffff,
-    bloom: 0.2,
+    skyTop: '#dfe8e4',
+    skyMid: '#efeadc',
+    horizon: '#f8f1df',
+    floor: '#e6dfcd',
+    hillFar: '#d6ddd0',
+    hillNear: '#c6d2c2',
+    sunGlow: '#fff4d6',
+    glow: 0.34,
+    groundShade: 0.17,
+    hemiSky: 0xfdf8ee,
+    hemiGround: 0xb9c2c8,
+    hemiInt: 1.25,
+    sunColor: 0xfff2dc,
+    sunInt: 2.6,
+    fillColor: 0xdfe8ff,
+    fillInt: 0.45,
+    turfA: '#6dbb62',
+    turfB: '#62b058',
+    turfEdge: '#4f9a4b',
+    ramp: '#7cc86e',
+    soil: '#cfae88',
+    soilDark: '#ad8a66',
+    rock: 0x9c8a78,
+    hedge: 0x2f6f48,
+    sand: '#f1e2bd',
+    sandLine: '#dcc797',
+    water: '#83c9df',
+    waterDeep: '#5fb0cf',
+    ice: '#e7f4f8',
+    iceEdge: '#c2e0ea',
+    mud: '#8d6d50',
+    mudDark: '#74573e',
+    plank: '#b98f61',
+    plankDark: '#9a7449',
   },
-  // "Golden Hour": low amber sun, long warm light.
+  // "Evergreen": the same model under a warm lamp in a dark green room.
   dark: {
-    skyTop: '#5d7fc4',
-    skyMid: '#f2b98f',
-    skyHaze: '#ffe2a8',
-    sunGlow: '#ffd58a',
-    cloud: '#fff1dc',
-    cloudShade: '#f0b9a0',
-    hillFar: '#c2a3b8',
-    hillMid: '#a98f8a',
-    hillNear: '#8d9a5c',
-    valley: '#b9b866',
-    mist: '#f6e3b8',
-    hemiSky: 0xffe2c2,
-    hemiGround: 0xb894c4,
-    hemiInt: 1.35,
-    sunColor: 0xffd49a,
+    skyTop: '#081b14',
+    skyMid: '#0f2a20',
+    horizon: '#133026',
+    floor: '#0a1f17',
+    hillFar: '#112b22',
+    hillNear: '#0f271e',
+    sunGlow: '#5c8f72',
+    glow: 0.2,
+    groundShade: 0.38,
+    hemiSky: 0xf3ead6,
+    hemiGround: 0x41564c,
+    hemiInt: 1.05,
+    sunColor: 0xffe9c4,
     sunInt: 2.7,
-    rimColor: 0xffb48a,
-    rimInt: 0.55,
-    turfA: '#9ccb54',
-    turfB: '#7fb044',
-    turfDark: '#6a9a38',
-    ramp: '#a2d05c',
-    soil: '#c8925c',
-    soilDark: '#a57246',
-    rock: 0x9a7c60,
-    hedge: '#4a8a3e',
-    hedgeDark: '#386e32',
-    sand: '#f7dfa0',
-    sandLine: '#deb974',
-    water: '#6cc0de',
-    waterDeep: '#4a9fca',
-    ice: '#e6f3f6',
-    mud: '#8a6040',
-    mudDark: '#6c482e',
-    plank: '#b87a48',
-    plankDark: '#925c36',
-    cloud3d: 0xfff0dc,
-    bloom: 0.26,
+    fillColor: 0xbfe0d0,
+    fillInt: 0.4,
+    turfA: '#69b860',
+    turfB: '#5eac56',
+    turfEdge: '#4a9548',
+    ramp: '#78c46b',
+    soil: '#c9a680',
+    soilDark: '#a5825f',
+    rock: 0x8e7d6c,
+    hedge: 0x2b6843,
+    sand: '#efdfb8',
+    sandLine: '#d8c290',
+    water: '#7cc4dc',
+    waterDeep: '#58a9c9',
+    ice: '#e3f1f6',
+    iceEdge: '#bcdbe6',
+    mud: '#886849',
+    mudDark: '#6f533a',
+    plank: '#b48a5c',
+    plankDark: '#946f45',
   },
 };
 
@@ -132,31 +114,19 @@ function hash2(x, y) {
   return s - Math.floor(s);
 }
 
-function makeCanvasTex(size, drawFn, { srgb = true, repeat = false, height = size } = {}) {
+function makeCanvasTex(size, drawFn, { repeat = false, height = size } = {}) {
   const c = document.createElement('canvas');
   c.width = size;
   c.height = height;
   const ctx = c.getContext('2d');
   drawFn(ctx, size, height);
   const tex = new THREE.CanvasTexture(c);
-  if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.colorSpace = THREE.SRGBColorSpace;
   if (repeat) {
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
   }
-  tex.anisotropy = 4;
-  return tex;
-}
-
-// A soft six-step ramp: light falls off in a few brushy bands instead of one hard cel edge.
-function makeToonRamp() {
-  const steps = [118, 150, 186, 218, 242, 255];
-  const data = new Uint8Array(steps.length * 4);
-  steps.forEach((v, i) => data.set([v, v, v, 255], i * 4));
-  const tex = new THREE.DataTexture(data, steps.length, 1, THREE.RGBAFormat);
-  tex.minFilter = THREE.NearestFilter;
-  tex.magFilter = THREE.NearestFilter;
-  tex.needsUpdate = true;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -205,55 +175,6 @@ function makeDimpleNormalMap() {
   return tex;
 }
 
-function onLayer(obj, layer) {
-  obj.traverse((o) => o.layers.set(layer));
-  return obj;
-}
-
-// A painted material: `paint` draws the colour map.
-function paintedMaterial(ramp, paint, { size = 128, height = size, repeat = true, extra = {} } = {}) {
-  const map = makeCanvasTex(size, paint, { repeat, height });
-  return new THREE.MeshToonMaterial({ map, gradientMap: ramp, ...extra });
-}
-
-// Broken colour: overlapping dabs from a small palette, the way an impressionist lays in a field.
-function dabs(ctx, w, h, count, palette, seed, { min = 5, max = 12, alpha = 0.4, stretch = 1.6 } = {}) {
-  for (let i = 0; i < count; i++) {
-    const x = hash2(i, seed) * w;
-    const y = hash2(i, seed + 2.9) * h;
-    const r = min + hash2(i, seed + 6.3) * (max - min);
-    ctx.globalAlpha = alpha * (0.55 + hash2(i, seed + 4.7) * 0.6);
-    ctx.fillStyle = palette[Math.floor(hash2(i, seed + 8.1) * palette.length)];
-    const rot = (hash2(i, seed + 1.4) - 0.5) * 1.2;
-    // draw wrapped so the texture tiles without seams
-    for (const ox of [0, -w, w]) {
-      for (const oy of [0, -h, h]) {
-        if (Math.abs(x + ox - w / 2) > w / 2 + r * stretch || Math.abs(y + oy - h / 2) > h / 2 + r * stretch) continue;
-        ctx.beginPath();
-        ctx.ellipse(x + ox, y + oy, r * stretch, r, rot, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-// Short brush strokes, deterministic, used for grass, hedges and soil.
-function strokes(ctx, s, count, color, len, seed, width = 2) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = 'round';
-  for (let i = 0; i < count; i++) {
-    const x = hash2(i, seed) * s;
-    const y = hash2(i, seed + 3.7) * s;
-    const lean = (hash2(i, seed + 9.1) - 0.5) * len * 0.6;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + lean, y - len * (0.6 + hash2(i, seed + 5.3) * 0.6));
-    ctx.stroke();
-  }
-}
-
 const BACKDROP_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -262,50 +183,35 @@ const BACKDROP_VERT = /* glsl */ `
   }
 `;
 
-// Painted backdrop: a soft sky with drifting clouds and a warm sun, layered hills in
-// atmospheric haze, and a misty valley far below the floating course.
+// Backdrop: a smooth gradient, one soft glow, two faint ridgelines and the island's shadow on the ground.
 const BACKDROP_FRAG = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
-  uniform float uTime;
   uniform vec2 uRes;
   uniform float uHorizon;
   uniform vec2 uSun;
+  uniform vec3 uShadow; // x, y (px) and radius (px)
+  uniform float uShade;
+  uniform float uGlow;
   uniform vec3 cTop;
   uniform vec3 cMid;
-  uniform vec3 cHaze;
-  uniform vec3 cSun;
-  uniform vec3 cCloud;
-  uniform vec3 cCloudShade;
+  uniform vec3 cHorizon;
+  uniform vec3 cFloor;
   uniform vec3 cHillFar;
-  uniform vec3 cHillMid;
   uniform vec3 cHillNear;
-  uniform vec3 cValley;
-  uniform vec3 cMist;
+  uniform vec3 cSun;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
   }
-  float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
+  float noise(float x) {
+    float i = floor(x);
+    float f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-  }
-  float fbm(vec2 p) {
-    float v = 0.0;
-    float a = 0.5;
-    for (int i = 0; i < 4; i++) {
-      v += a * noise(p);
-      p = p * 2.03 + 11.7;
-      a *= 0.5;
-    }
-    return v;
+    return mix(hash(vec2(i, 1.0)), hash(vec2(i + 1.0, 1.0)), f);
   }
   float ridge(float x, float seed) {
-    return noise(vec2(x + seed, seed)) * 0.6 + noise(vec2(x * 2.3 + seed, seed * 1.7)) * 0.28
-      + noise(vec2(x * 5.1 + seed, seed * 3.1)) * 0.12;
+    return noise(x + seed) * 0.7 + noise(x * 2.1 + seed * 1.7) * 0.3;
   }
 
   void main() {
@@ -314,182 +220,37 @@ const BACKDROP_FRAG = /* glsl */ `
     float yy = vUv.y - uHorizon;
     float px = 1.5 / uRes.y;
 
-    // Sky
     float t = clamp(yy / max(0.001, 1.0 - uHorizon), 0.0, 1.0);
-    vec3 col = mix(cHaze, cMid, smoothstep(0.0, 0.38, t));
-    col = mix(col, cTop, smoothstep(0.3, 1.0, t));
+    vec3 col = mix(cHorizon, cMid, smoothstep(0.0, 0.5, t));
+    col = mix(col, cTop, smoothstep(0.4, 1.0, t));
 
-    // Sun: a soft disc inside a wide warm bloom
+    // one soft glow where the light comes from
     vec2 sv = (vUv - uSun / uRes) * vec2(aspect, 1.0);
-    float sd = length(sv);
-    col += cSun * exp(-sd * 5.5) * 0.55;
-    col = mix(col, vec3(1.0, 0.99, 0.93), smoothstep(0.034, 0.02, sd));
+    col += cSun * exp(-length(sv) * 3.4) * uGlow;
 
-    // Clouds: two cel-edged layers drifting at different speeds
-    float cl = fbm(vec2(xa * 1.5 + uTime * 0.012, yy * 4.6 + 3.0));
-    float cl2 = fbm(vec2(xa * 2.6 - uTime * 0.008 + 7.0, yy * 8.0));
-    float mask = smoothstep(0.03, 0.22, yy);
-    float body = smoothstep(0.58, 0.63, cl) * mask;
-    float lit = smoothstep(0.64, 0.69, cl);
-    col = mix(col, mix(cCloudShade, cCloud, lit), body * 0.82);
-    col = mix(col, cCloud, smoothstep(0.66, 0.72, cl2) * mask * 0.45);
+    // two faint ridgelines resting on the horizon
+    float h1 = 0.03 + 0.07 * ridge(xa * 0.8, 3.0);
+    col = mix(col, cHillFar, smoothstep(px, -px, yy - h1));
+    float h2 = 0.004 + 0.045 * ridge(xa * 1.4, 11.0);
+    col = mix(col, cHillNear, smoothstep(px, -px, yy - h2));
 
-    // Hills, far to near
-    float h1 = 0.05 + 0.12 * ridge(xa * 1.1, 3.0);
-    col = mix(col, mix(cHillFar, cHaze, 0.22), smoothstep(px, -px, yy - h1));
-    float h2 = -0.01 + 0.095 * ridge(xa * 1.9, 11.0);
-    col = mix(col, mix(cHillMid, cHaze, 0.08), smoothstep(px, -px, yy - h2));
-    // near ridge with a ragged treeline
-    float h3 = -0.085 + 0.09 * ridge(xa * 2.7, 23.0) + 0.012 * noise(vec2(xa * 46.0, 3.0));
-    vec3 near = mix(cHillNear, cValley, smoothstep(h3, h3 - 0.25, yy));
-    // dappled cloud shadows drifting over the valley floor
-    float dapple = fbm(vec2(xa * 2.2 + uTime * 0.01, yy * 7.0));
-    near *= mix(0.9, 1.06, smoothstep(0.35, 0.65, dapple));
-    near = mix(near, cMist, smoothstep(-0.2, -0.62, yy));
-    col = mix(col, near, smoothstep(px, -px, yy - h3));
+    // the ground plane falls away toward the viewer
+    float f = clamp(-yy / max(0.001, uHorizon), 0.0, 1.0);
+    vec3 ground = mix(cHillNear, cFloor, smoothstep(0.0, 0.3, f));
+    col = mix(col, ground, smoothstep(px, -px, yy));
 
-    // Broken colour: flecks of warm and cool laid over everything, wildflowers in the valley
-    vec2 q = vec2(xa * 34.0, yy * 64.0);
-    col += (noise(q) - 0.5) * 0.085 * vec3(1.0, 0.92, 0.6);
-    col += (noise(q * 2.1 + 9.0) - 0.5) * 0.07 * vec3(0.55, 0.65, 1.0);
-    float meadow = smoothstep(px, -px, yy - h3) * smoothstep(-0.6, -0.12, yy);
-    float fleck = noise(vec2(xa * 70.0, yy * 150.0));
-    col = mix(col, vec3(0.93, 0.33, 0.24), smoothstep(0.84, 0.9, fleck) * meadow * 0.28);
-    col = mix(col, vec3(0.99, 0.93, 0.55), smoothstep(0.8, 0.88, noise(vec2(xa * 64.0 + 20.0, yy * 140.0))) * meadow * 0.16);
+    // the floating course casts a soft shadow on the ground beneath it
+    vec2 sp = (gl_FragCoord.xy - uShadow.xy) / vec2(uShadow.z, uShadow.z * 0.3);
+    col *= 1.0 - uShade * smoothstep(1.0, 0.0, length(sp));
 
-    // Haze pooling along the horizon
-    col = mix(col, cHaze, exp(-abs(yy) * 16.0) * 0.26);
+    // dither away banding
+    col += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
 
-    // alpha 0.25 tells the paint pass this is backdrop: brush it fully
-    gl_FragColor = vec4(col, 0.25);
-    // No-ops when rendering into the bloom composer; needed on the direct (low quality) path.
+    gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
 `;
-
-// Finishing pass: a Kuwahara filter flattens each neighbourhood to its calmest quadrant, which reads as
-// brushwork; the lookup wobbles slightly so straight edges go hand-drawn, and a canvas grain sits on top.
-const PaintShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    uTexel: { value: new THREE.Vector2(1 / 512, 1 / 512) },
-    uSpread: { value: 1 },
-    uAspect: { value: 1 },
-    uBoard: { value: 0.38 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: /* glsl */ `
-    precision highp float;
-    uniform sampler2D tDiffuse;
-    uniform vec2 uTexel;
-    uniform float uSpread;
-    uniform float uAspect;
-    uniform float uBoard;
-    varying vec2 vUv;
-
-    float hash(vec2 p) {
-      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-    }
-    float noise(vec2 p) {
-      vec2 i = floor(p);
-      vec2 f = fract(p);
-      f = f * f * (3.0 - 2.0 * f);
-      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                 mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-    }
-
-    void main() {
-      vec2 g = vUv * vec2(uAspect, 1.0);
-      vec2 step = uTexel * uSpread;
-      vec4 src = texture2D(tDiffuse, vUv);
-      vec2 uv = vUv + (vec2(noise(g * 70.0), noise(g * 70.0 + 31.7)) - 0.5) * step * 3.2;
-
-      vec3 m0 = vec3(0.0); vec3 m1 = vec3(0.0); vec3 m2 = vec3(0.0); vec3 m3 = vec3(0.0);
-      vec3 s0 = vec3(0.0); vec3 s1 = vec3(0.0); vec3 s2 = vec3(0.0); vec3 s3 = vec3(0.0);
-      for (int j = 0; j <= 3; j++) {
-        for (int i = 0; i <= 3; i++) {
-          vec2 o = vec2(float(i), float(j)) * step;
-          vec3 c;
-          c = texture2D(tDiffuse, uv + vec2(-o.x, -o.y)).rgb; m0 += c; s0 += c * c;
-          c = texture2D(tDiffuse, uv + vec2(o.x, -o.y)).rgb; m1 += c; s1 += c * c;
-          c = texture2D(tDiffuse, uv + vec2(o.x, o.y)).rgb; m2 += c; s2 += c * c;
-          c = texture2D(tDiffuse, uv + vec2(-o.x, o.y)).rgb; m3 += c; s3 += c * c;
-        }
-      }
-      const float n = 16.0;
-      m0 /= n; m1 /= n; m2 /= n; m3 /= n;
-      vec3 v0 = abs(s0 / n - m0 * m0); vec3 v1 = abs(s1 / n - m1 * m1);
-      vec3 v2 = abs(s2 / n - m2 * m2); vec3 v3 = abs(s3 / n - m3 * m3);
-      float e0 = v0.r + v0.g + v0.b; float e1 = v1.r + v1.g + v1.b;
-      float e2 = v2.r + v2.g + v2.b; float e3 = v3.r + v3.g + v3.b;
-
-      vec3 col = m0;
-      float best = e0;
-      if (e1 < best) { best = e1; col = m1; }
-      if (e2 < best) { best = e2; col = m2; }
-      if (e3 < best) { col = m3; }
-
-      // canvas tooth
-      col *= 0.965 + 0.07 * noise(g * 420.0);
-      // The alpha channel says how much brush each pixel takes:
-      //   ~0.25 backdrop: fully painted   1.0 the course: lightly brushed
-      // (game pieces are not in this image at all: PiecesPass draws them afterwards)
-      float amount = mix(1.0, uBoard, smoothstep(0.4, 0.8, src.a));
-      col = mix(src.rgb, col, amount);
-      gl_FragColor = vec4(col, 1.0);
-    }
-  `,
-};
-
-// Draws the game pieces (ball, pin, aim guides) over the finished painting, untouched by paint or bloom.
-// The composer's buffers do not share depth, so the land is first laid down depth-only to hide pieces behind it.
-class PiecesPass extends Pass {
-  constructor(owner) {
-    super();
-    this.owner = owner;
-    this.scene = owner.scene;
-    this.camera = owner.camera;
-    this.needsSwap = false;
-    this.depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
-  }
-
-  render(renderer, writeBuffer, readBuffer) {
-    const autoClear = renderer.autoClear;
-    const shadowAuto = renderer.shadowMap.autoUpdate;
-    const mask = this.camera.layers.mask;
-    renderer.autoClear = false;
-    renderer.shadowMap.autoUpdate = false;
-    renderer.setRenderTarget(readBuffer);
-    renderer.clearDepth();
-
-    // the cup is sunk below the turf, so its tile's cap must not hide it
-    const cupCap = this.owner.cupCap;
-    if (cupCap) cupCap.visible = false;
-    this.camera.layers.set(LAYER_WORLD);
-    this.scene.overrideMaterial = this.depthOnly;
-    renderer.render(this.scene, this.camera);
-    this.scene.overrideMaterial = null;
-    if (cupCap) cupCap.visible = true;
-
-    this.camera.layers.set(LAYER_PIECES);
-    renderer.render(this.scene, this.camera);
-
-    this.camera.layers.mask = mask;
-    renderer.autoClear = autoClear;
-    renderer.shadowMap.autoUpdate = shadowAuto;
-  }
-
-  dispose() {
-    this.depthOnly.dispose();
-  }
-}
 
 export class GolfRenderer3D {
   constructor(canvas, { onDirectionPick, onSwipeDirection, theme = 'light', quality = 'auto' } = {}) {
@@ -507,14 +268,15 @@ export class GolfRenderer3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Quality: "high" = bloom composer, "low" = direct render. "auto" starts high and steps down if frames drag.
+    // Quality is render density: "high" is crisp, "low" is lighter. "auto" starts high and steps down if frames drag.
     this.qualityMode = quality === 'high' || quality === 'low' ? quality : 'auto';
     this.quality = this.qualityMode === 'low' ? 'low' : 'high';
     this.frameAvg = 16;
     this.frameCount = 0;
+    this.applyQuality();
 
     this.scene = new THREE.Scene();
-    // Image-based light for the physically shaded pieces (ball, pin, cup). Painted materials ignore it.
+    // Image-based light for the physically shaded pieces (ball, pin, water sheen).
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
@@ -526,47 +288,44 @@ export class GolfRenderer3D {
     this.orbitAngle = Math.PI / 4;
     this.targetOrbitAngle = Math.PI / 4;
 
-    // Lights
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x222244, 1.2);
+    // Lights: one soft key with shadows, sky fill, a cool kicker
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0xb9c2c8, 1.2);
     this.scene.add(this.hemi);
 
-    this.sun = new THREE.DirectionalLight(0xffffff, 2.0);
+    this.sun = new THREE.DirectionalLight(0xffffff, 2.6);
     this.sun.position.set(-7, 15, 9);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 2;
     this.sun.shadow.camera.far = 40;
     this.sun.shadow.camera.left = -8;
     this.sun.shadow.camera.right = 8;
     this.sun.shadow.camera.top = 8;
     this.sun.shadow.camera.bottom = -8;
-    this.sun.shadow.bias = -0.0012;
-    this.sun.shadow.radius = 3;
+    this.sun.shadow.bias = -0.0008;
+    this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = 5;
     this.scene.add(this.sun);
 
-    this.rim = new THREE.DirectionalLight(0xff4fd0, 0.9);
-    this.rim.position.set(9, 6, -6);
-    this.scene.add(this.rim);
-    // lights are layer-tested like any object: let them reach the game-piece layer too
-    for (const light of [this.hemi, this.sun, this.rim]) light.layers.enableAll();
+    this.fill = new THREE.DirectionalLight(0xdfe8ff, 0.45);
+    this.fill.position.set(9, 6, -6);
+    this.scene.add(this.fill);
 
     // Backdrop (drawn first, ignores depth)
     this.backdropUniforms = {
-      uTime: { value: 0 },
       uRes: { value: new THREE.Vector2(1, 1) },
       uHorizon: { value: 0.5 },
       uSun: { value: new THREE.Vector2(0, 0) },
+      uShadow: { value: new THREE.Vector3(0, 0, 100) },
+      uShade: { value: 0.16 },
+      uGlow: { value: 0.34 },
       cTop: { value: new THREE.Color() },
       cMid: { value: new THREE.Color() },
-      cHaze: { value: new THREE.Color() },
-      cSun: { value: new THREE.Color() },
-      cCloud: { value: new THREE.Color() },
-      cCloudShade: { value: new THREE.Color() },
+      cHorizon: { value: new THREE.Color() },
+      cFloor: { value: new THREE.Color() },
       cHillFar: { value: new THREE.Color() },
-      cHillMid: { value: new THREE.Color() },
       cHillNear: { value: new THREE.Color() },
-      cValley: { value: new THREE.Color() },
-      cMist: { value: new THREE.Color() },
+      cSun: { value: new THREE.Color() },
     };
     this.backdrop = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
@@ -597,46 +356,39 @@ export class GolfRenderer3D {
 
     // Shared geometries (never disposed)
     const s = TILE_SIZE;
-    this.toonRamp = makeToonRamp();
     this.geo = {
       cap: new THREE.BoxGeometry(s, CAP_H, s),
       overlay: new THREE.PlaneGeometry(s * 0.9, s * 0.9).rotateX(-Math.PI / 2),
-      hedge: new RoundedBoxGeometry(0.84, 0.58, 0.84, 3, 0.13),
-      topiary: new THREE.SphereGeometry(0.27, 14, 10),
+      hedge: new RoundedBoxGeometry(0.82, 0.56, 0.82, 4, 0.14),
+      topiary: new THREE.SphereGeometry(0.27, 24, 16),
       stal: new THREE.ConeGeometry(s * 0.71, 1, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(0, -0.5, 0),
-      flower: new THREE.SphereGeometry(0.042, 6, 4).scale(1, 0.55, 1),
-      tuft: new THREE.ConeGeometry(0.034, 0.15, 4).translate(0, 0.075, 0),
-      stem: new THREE.CylinderGeometry(0.1, 0.13, 0.2, 12).translate(0, 0.1, 0),
-      shroom: new THREE.SphereGeometry(0.3, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.72, 1),
-      spot: new THREE.SphereGeometry(0.05, 8, 6).scale(1, 0.5, 1),
-      stoneRing: new THREE.TorusGeometry(0.31, 0.075, 8, 20).rotateX(Math.PI / 2).scale(1, 0.7, 1),
-      portalDisc: new THREE.CircleGeometry(0.25, 24).rotateX(-Math.PI / 2),
+      flower: new THREE.SphereGeometry(0.036, 8, 6).scale(1, 0.6, 1),
+      stem: new THREE.CylinderGeometry(0.1, 0.13, 0.2, 20).translate(0, 0.1, 0),
+      shroom: new THREE.SphereGeometry(0.3, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.72, 1),
+      spot: new THREE.SphereGeometry(0.05, 12, 8).scale(1, 0.5, 1),
+      stoneRing: new THREE.TorusGeometry(0.31, 0.07, 12, 32).rotateX(Math.PI / 2).scale(1, 0.7, 1),
+      portalDisc: new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2),
+      cupDisc: new THREE.CircleGeometry(0.2, 32).rotateX(-Math.PI / 2),
+      cupLip: new THREE.TorusGeometry(0.207, 0.018, 8, 36).rotateX(Math.PI / 2),
       pole: new THREE.CylinderGeometry(0.024, 0.028, 1.42, 16),
       finial: new THREE.SphereGeometry(0.036, 14, 10),
-      cupWall: new THREE.CylinderGeometry(0.2, 0.2, 0.1, 28, 1, true),
-      cupFloor: new THREE.CircleGeometry(0.2, 28).rotateX(-Math.PI / 2),
-      cupLip: new THREE.TorusGeometry(0.207, 0.018, 8, 32).rotateX(Math.PI / 2),
       flag: new THREE.PlaneGeometry(0.66, 0.42, 18, 8).translate(0.33, 0, 0),
-      puff: new THREE.SphereGeometry(1, 14, 10),
       spark: new THREE.SphereGeometry(0.05, 6, 6),
-      dot: new THREE.SphereGeometry(0.05, 10, 8),
-      ring: new THREE.RingGeometry(0.2, 0.3, 32).rotateX(-Math.PI / 2),
-      ringCore: new THREE.CircleGeometry(0.2, 24).rotateX(-Math.PI / 2),
+      dot: new THREE.SphereGeometry(0.036, 10, 8),
+      ring: new THREE.RingGeometry(0.2, 0.29, 36).rotateX(-Math.PI / 2),
       hitArrow: new THREE.BoxGeometry(0.92, 0.6, 0.98),
       hitTile: new THREE.BoxGeometry(0.96, 0.3, 0.96),
-      beam: new THREE.CylinderGeometry(0.2, 0.2, 1, 20, 1, true),
+      beam: new THREE.CylinderGeometry(0.2, 0.2, 1, 24, 1, true).translate(0, 0.5, 0),
       chevron: this.makeChevronGeometry(),
     };
-    this.geo.beam.translate(0, 0.5, 0);
 
-    // Ball
+    // Ball: glossy, dimpled, physically shaded
     this.ballGroup = new THREE.Group();
     this.ballMesh = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 48, 32),
       new THREE.MeshPhysicalMaterial({
         color: 0xffffff,
         roughness: 0.3,
-        metalness: 0,
         clearcoat: 0.7,
         clearcoatRoughness: 0.18,
         normalMap: makeDimpleNormalMap(),
@@ -645,61 +397,48 @@ export class GolfRenderer3D {
         envMapIntensity: 0.9,
       })
     );
+    this.ballMesh.castShadow = true;
     this.ballGroup.add(this.ballMesh);
-    onLayer(this.ballGroup, LAYER_PIECES);
+    this.islandGroup.add(this.ballGroup);
 
-    // Ground shadow blob under the ball (reads height during chips)
+    // A soft contact shadow straight below the ball: shows where a chip will come down
     const shadowGeo = new THREE.PlaneGeometry(0.62, 0.62);
     shadowGeo.rotateX(-Math.PI / 2);
     this.ballShadow = new THREE.Mesh(
       shadowGeo,
       new THREE.MeshBasicMaterial({
-        map: makeCanvasTex(64, (ctx, s) => {
-          const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-          g.addColorStop(0, 'rgba(14,30,18,0.7)');
-          g.addColorStop(0.45, 'rgba(14,30,18,0.3)');
+        map: makeCanvasTex(64, (ctx, sz) => {
+          const g = ctx.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2);
+          g.addColorStop(0, 'rgba(14,30,18,0.5)');
+          g.addColorStop(0.5, 'rgba(14,30,18,0.2)');
           g.addColorStop(1, 'rgba(14,30,18,0)');
           ctx.fillStyle = g;
-          ctx.fillRect(0, 0, s, s);
+          ctx.fillRect(0, 0, sz, sz);
         }),
         transparent: true,
         depthWrite: false,
       })
     );
-    this.ballShadow.layers.set(LAYER_FX);
     this.islandGroup.add(this.ballShadow);
-    this.islandGroup.add(this.ballGroup);
 
-    // Comet trail behind the moving ball
-    this.trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, depthWrite: false });
+    // A short trail behind the moving ball
+    this.trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false });
     this.trail = [];
     this.trailHistory = [];
-    const trailGeo = new THREE.SphereGeometry(BALL_R * 0.82, 10, 8);
-    for (let i = 0; i < 12; i++) {
+    const trailGeo = new THREE.SphereGeometry(BALL_R * 0.8, 12, 10);
+    for (let i = 0; i < 10; i++) {
       const m = new THREE.Mesh(trailGeo, this.trailMat);
       m.visible = false;
-      m.layers.set(LAYER_FX);
       this.fxGroup.add(m);
       this.trail.push(m);
     }
 
-    // Drifting motes around the island
-    this.motes = this.makeMotes();
-    this.motes.layers.set(LAYER_FX);
-    this.islandGroup.add(this.motes);
-
-    // Cloud puffs drifting around and below the island
-    this.cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.toonRamp, emissive: 0x8fa6bd, emissiveIntensity: 0.32 });
-    this.clouds = this.makeClouds();
-    this.scene.add(this.clouds);
-
     // Animated references
     this.columns = [];
-    this.portalRings = [];
     this.portalDiscs = [];
-    this.springRings = [];
+    this.springs = [];
     this.beams = [];
-    this.flora = [];
+    this.flowers = null;
     this.floraT = 1;
     this.flagCloth = null;
     this.arrowHitMeshes = [];
@@ -711,6 +450,7 @@ export class GolfRenderer3D {
     this.shake = 0;
     this.introT = Infinity;
     this.ballPop = 1;
+    this.maxElev = 0;
 
     // Animation state
     this.level = null;
@@ -728,8 +468,6 @@ export class GolfRenderer3D {
     this.dragStart = null;
     this.bindInput();
 
-    this.setupPipeline();
-
     // Render loop
     this.clock = new THREE.Clock();
     this.renderer.setAnimationLoop(() => this.tick());
@@ -745,101 +483,20 @@ export class GolfRenderer3D {
     shape.lineTo(0, 0.1);
     shape.lineTo(-0.26, -0.2);
     shape.closePath();
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.07, bevelEnabled: false });
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
     geo.rotateX(Math.PI / 2); // lie flat, pointing +Z
     return geo;
   }
 
-  makeMotes() {
-    const count = 46;
-    const pos = new Float32Array(count * 3);
-    this.moteSeeds = [];
-    for (let i = 0; i < count; i++) {
-      const ang = hash2(i, 1.7) * Math.PI * 2;
-      const rad = 1.5 + hash2(i, 4.2) * 5.5;
-      this.moteSeeds.push({ ang, rad, y: hash2(i, 8.8) * 7 - 2, speed: 0.12 + hash2(i, 3.1) * 0.3 });
-      pos[i * 3] = Math.cos(ang) * rad;
-      pos[i * 3 + 1] = 0;
-      pos[i * 3 + 2] = Math.sin(ang) * rad;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const sprite = makeCanvasTex(32, (ctx, s) => {
-      const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-      g.addColorStop(0, 'rgba(255,255,255,1)');
-      g.addColorStop(0.35, 'rgba(255,255,255,0.5)');
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, s, s);
-    });
-    // Pollen catching the light
-    this.moteMat = new THREE.PointsMaterial({
-      map: sprite,
-      size: 5,
-      sizeAttenuation: false,
-      color: 0xfffbe0,
-      transparent: true,
-      opacity: 0.75,
-      depthWrite: false,
-    });
-    const pts = new THREE.Points(geo, this.moteMat);
-    pts.frustumCulled = false;
-    return pts;
-  }
-
-  makeClouds() {
-    const group = new THREE.Group();
-    this.cloudSeeds = [];
-    for (let i = 0; i < 5; i++) {
-      const cloud = new THREE.Group();
-      const puffs = 4 + Math.floor(hash2(i, 2.2) * 3);
-      for (let k = 0; k < puffs; k++) {
-        const puff = new THREE.Mesh(this.geo.puff, this.cloudMat);
-        const r = 0.34 + hash2(i * 7 + k, 5.1) * 0.36;
-        puff.scale.set(r, r * 0.62, r * 0.85);
-        puff.position.set((k - (puffs - 1) / 2) * 0.48, hash2(i * 3 + k, 8.4) * 0.22, (hash2(i + k, 1.9) - 0.5) * 0.5);
-        cloud.add(puff);
-      }
-      this.cloudSeeds.push({
-        ang: (i / 5) * Math.PI * 2 + hash2(i, 6.6),
-        rad: 2.2 + hash2(i, 3.3) * 3.2,
-        y: -2.6 - hash2(i, 9.1) * 3.0,
-        speed: 0.012 + hash2(i, 4.4) * 0.02,
-      });
-      group.add(cloud);
-    }
-    return group;
-  }
-
-  setupPipeline() {
-    if (this.composer) {
-      this.composer.dispose();
-      this.composer = null;
-      this.bloomPass = null;
-      this.paintPass = null;
-    }
+  applyQuality() {
     const dpr = window.devicePixelRatio || 1;
-    if (this.quality === 'high') {
-      // The paint filter hides fine detail anyway, so the composer runs at a modest density.
-      this.renderer.setPixelRatio(Math.min(dpr, 1.5));
-      const target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
-      this.composer = new EffectComposer(this.renderer, target);
-      this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), THEMES[this.themeName].bloom, 0.7, 0.9);
-      this.paintPass = new ShaderPass(PaintShader);
-      this.composer.addPass(this.paintPass);
-      this.composer.addPass(this.bloomPass);
-      this.composer.addPass(new PiecesPass(this));
-      this.composer.addPass(new OutputPass());
-    } else {
-      this.renderer.setPixelRatio(Math.min(dpr, 1.5));
-    }
+    this.renderer.setPixelRatio(Math.min(dpr, this.quality === 'high' ? 2 : 1.25));
   }
 
   setQuality(q) {
     if (q === this.quality) return;
     this.quality = q;
-    this.setupPipeline();
+    this.applyQuality();
     this.fitCamera();
   }
 
@@ -862,7 +519,6 @@ export class GolfRenderer3D {
       if (m.isMaterial) {
         seen.add(m);
         if (m.map) m.map.dispose();
-        if (m.emissiveMap) m.emissiveMap.dispose();
         m.dispose();
       } else if (typeof m === 'object') {
         Object.values(m).forEach(walk);
@@ -875,275 +531,206 @@ export class GolfRenderer3D {
   buildMaterials() {
     this.disposeMats();
     const t = THEMES[this.themeName];
-    const ramp = this.toonRamp;
-    const toon = (o) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...o });
+    const matte = (o) => new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0, ...o });
+    const tile = (paint, extra = {}, texOpts = { repeat: true }) => matte({ map: makeCanvasTex(128, paint, texOpts), ...extra });
+    // A crisp bevel line just inside the tile edge: light on two sides, shade on the other two.
+    const bevel = (ctx, s, light = 0.22, shade = 0.14) => {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(255,255,255,${light})`;
+      ctx.beginPath();
+      ctx.moveTo(2, s - 2);
+      ctx.lineTo(2, 2);
+      ctx.lineTo(s - 2, 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(0,0,0,${shade})`;
+      ctx.beginPath();
+      ctx.moveTo(s - 2, 2);
+      ctx.lineTo(s - 2, s - 2);
+      ctx.lineTo(2, s - 2);
+      ctx.stroke();
+    };
     const m = {};
 
-    // Turf: mown in two tones, laid in with dabs of yellow, blue-green and a little violet shadow.
-    const turfPalette = ['#c4e86e', '#a2dc5c', '#5aa84c', '#4aa07a', '#e9e57c', '#7f8fd2', '#6fbf52'];
-    const turf = (base, seed) =>
-      paintedMaterial(ramp, (ctx, s) => {
+    // Turf: two quiet tones, the way a fairway is mown
+    const turf = (base) =>
+      tile((ctx, s) => {
         ctx.fillStyle = base;
         ctx.fillRect(0, 0, s, s);
-        dabs(ctx, s, s, 90, turfPalette, seed, { min: 4, max: 11, alpha: 0.3 });
-        dabs(ctx, s, s, 26, ['#f4f0a0', '#d8f08a'], seed + 31, { min: 2, max: 5, alpha: 0.5 });
-        strokes(ctx, s, 40, 'rgba(255,255,205,0.28)', 10, seed + 1.3);
-        strokes(ctx, s, 26, 'rgba(30,80,50,0.2)', 8, seed + 6.1);
-        // a loose, broken seam so the grid still reads under the brushwork
-        ctx.strokeStyle = 'rgba(38,92,48,0.34)';
-        ctx.lineCap = 'round';
-        for (let i = 0; i < 28; i++) {
-          const along = hash2(i, seed + 14.2) * s;
-          const len = 8 + hash2(i, seed + 3.4) * 16;
-          const side = i % 4;
-          ctx.lineWidth = 2 + hash2(i, seed + 9.9) * 3;
-          ctx.beginPath();
-          if (side === 0) { ctx.moveTo(along, 1.5); ctx.lineTo(along + len, 1.5); }
-          else if (side === 1) { ctx.moveTo(along, s - 1.5); ctx.lineTo(along + len, s - 1.5); }
-          else if (side === 2) { ctx.moveTo(1.5, along); ctx.lineTo(1.5, along + len); }
-          else { ctx.moveTo(s - 1.5, along); ctx.lineTo(s - 1.5, along + len); }
-          ctx.stroke();
-        }
+        bevel(ctx, s, 0.2, 0.12);
       });
-    m.grass = [turf(t.turfA, 1), turf(t.turfA, 40), turf(t.turfB, 80), turf(t.turfB, 120)];
+    m.grassA = turf(t.turfA);
+    m.grassB = turf(t.turfB);
 
-    m.sand = paintedMaterial(ramp, (ctx, s) => {
+    m.sand = tile((ctx, s) => {
       ctx.fillStyle = t.sand;
       ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 60, ['#fff6d6', '#efd596', '#f7cdaa', '#e7d6ee', '#f9e7b4'], 3, { min: 5, max: 12, alpha: 0.5 });
-      // raked arcs, drawn loosely
       ctx.strokeStyle = t.sandLine;
-      ctx.lineCap = 'round';
-      for (let r = 20, i = 0; r < s * 1.5; r += 19, i++) {
-        ctx.globalAlpha = 0.45 + hash2(i, 2.2) * 0.3;
-        ctx.lineWidth = 2 + hash2(i, 5.5) * 2.5;
+      ctx.lineWidth = 2.5;
+      for (let r = 26; r < s * 1.4; r += 22) {
         ctx.beginPath();
-        ctx.arc(-6, s + 6, r + hash2(i, 7.1) * 4, -Math.PI / 2, 0);
+        ctx.arc(-4, s + 4, r, -Math.PI / 2, 0);
         ctx.stroke();
       }
-      ctx.globalAlpha = 1;
+      bevel(ctx, s, 0.3, 0.16);
     });
 
-    m.ice = paintedMaterial(ramp, (ctx, s) => {
-      ctx.fillStyle = t.ice;
+    m.ice = tile((ctx, s) => {
+      const g = ctx.createLinearGradient(0, 0, s, s);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(1, t.ice);
+      ctx.fillStyle = g;
       ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 60, ['#ffffff', '#c9e8f6', '#dcd6f4', '#b7e2f3', '#f4fbff'], 5, { min: 6, max: 14, alpha: 0.55, stretch: 2.2 });
       ctx.strokeStyle = 'rgba(255,255,255,0.95)';
       ctx.lineCap = 'round';
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.moveTo(24, s - 34);
-      ctx.lineTo(s - 40, 24);
-      ctx.moveTo(56, s - 20);
-      ctx.lineTo(s - 20, 60);
+      ctx.moveTo(26, s - 36);
+      ctx.lineTo(s - 42, 26);
+      ctx.moveTo(58, s - 22);
+      ctx.lineTo(s - 22, 62);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(110,150,205,0.5)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(20, 30);
-      ctx.lineTo(48, 52);
-      ctx.lineTo(42, 84);
-      ctx.moveTo(48, 52);
-      ctx.lineTo(82, 58);
-      ctx.stroke();
-    }, { extra: { emissive: 0x9fd4ea, emissiveIntensity: 0.18 } });
+      ctx.strokeStyle = t.iceEdge;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, s - 3, s - 3);
+    }, { roughness: 0.12, envMap: this.envMap, envMapIntensity: 0.7 });
 
-    m.mud = paintedMaterial(ramp, (ctx, s) => {
+    m.mud = tile((ctx, s) => {
       ctx.fillStyle = t.mud;
       ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 60, [t.mudDark, '#a27a54', '#5c4a62', '#7a5a3c', '#b08a62'], 7, { min: 6, max: 13, alpha: 0.55 });
-      ctx.fillStyle = 'rgba(255,240,220,0.2)';
-      for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = t.mudDark;
+      for (let i = 0; i < 7; i++) {
         ctx.beginPath();
-        ctx.ellipse(hash2(i, 4.1) * s, hash2(i, 8.4) * s, 7, 2.5, 0.3, 0, Math.PI * 2);
+        ctx.ellipse(18 + hash2(i, 1.1) * (s - 36), 18 + hash2(i, 6.4) * (s - 36), 9 + hash2(i, 3.3) * 8, 5 + hash2(i, 9.9) * 4, hash2(i, 2.2) * 3, 0, Math.PI * 2);
         ctx.fill();
       }
-      strokes(ctx, s, 16, 'rgba(120,170,70,0.8)', 10, 12.5, 2.5);
+      bevel(ctx, s, 0.14, 0.2);
     });
 
-    // Pond: blues and violets in flat horizontal dabs, a glint or two, and lily pads.
-    m.water = paintedMaterial(ramp, (ctx, s) => {
-      ctx.fillStyle = t.water;
+    m.water = tile((ctx, s) => {
+      const g = ctx.createLinearGradient(0, 0, s, s);
+      g.addColorStop(0, t.water);
+      g.addColorStop(1, t.waterDeep);
+      ctx.fillStyle = g;
       ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 80, ['#86d6f0', t.waterDeep, '#8f9fe8', '#bfe8f4', '#5fc7c0', '#6a8fd8'], 9, { min: 3, max: 7, alpha: 0.55, stretch: 3.2 });
-      dabs(ctx, s, s, 16, ['#ffffff'], 21, { min: 1.2, max: 2.4, alpha: 0.85, stretch: 4 });
-      for (const [px, py, pr] of [[38, 44, 13], [88, 84, 10], [96, 30, 7]]) {
-        ctx.fillStyle = '#4f9c4a';
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.arc(px, py, pr, 0.5, Math.PI * 2 - 0.1);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#7cc45c';
-        ctx.beginPath();
-        ctx.arc(px - pr * 0.2, py - pr * 0.2, pr * 0.55, 0, Math.PI * 2);
-        ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      for (const [x, y, w] of [[18, 34, 30], [70, 58, 36], [30, 92, 26], [84, 104, 22]]) {
+        for (const ox of [0, -s, s]) {
+          ctx.beginPath();
+          ctx.moveTo(x + ox, y);
+          ctx.quadraticCurveTo(x + ox + w / 2, y - 5, x + ox + w, y);
+          ctx.stroke();
+        }
       }
-      for (const [px, py] of [[42, 40], [90, 80]]) {
-        ctx.fillStyle = '#ffd0e2';
-        ctx.beginPath();
-        ctx.arc(px, py, 4.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff3a0';
-        ctx.beginPath();
-        ctx.arc(px, py, 1.6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }, { extra: { emissive: 0x2f86b8, emissiveIntensity: 0.25 } });
+    }, { roughness: 0.08, envMap: this.envMap, envMapIntensity: 0.9 });
 
-    // Boost strip: a boardwalk with chalked chevrons that slide along it.
-    m.conveyor = paintedMaterial(ramp, (ctx, s) => {
+    // Boost strip: a boardwalk with white chevrons sliding along it
+    m.conveyor = tile((ctx, s) => {
       ctx.fillStyle = t.plank;
       ctx.fillRect(0, 0, s, s);
       ctx.strokeStyle = t.plankDark;
-      ctx.lineWidth = 3;
-      for (let y = 0; y <= s; y += s / 4) {
+      ctx.lineWidth = 2;
+      for (let y = s / 4; y < s; y += s / 4) {
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(s, y);
         ctx.stroke();
       }
-      ctx.fillStyle = t.plankDark;
-      for (let y = s / 8; y < s; y += s / 4) {
-        for (const x of [12, s - 12]) {
-          ctx.beginPath();
-          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      dabs(ctx, s, s, 34, ['#d49a62', '#8f5c36', '#a8703f', '#7a5a6a'], 13, { min: 3, max: 6, alpha: 0.35, stretch: 3.5 });
+      bevel(ctx, s, 0.2, 0.2);
     });
     m.chevrons = new THREE.MeshBasicMaterial({
       map: makeCanvasTex(128, (ctx, s) => {
         ctx.clearRect(0, 0, s, s);
-        ctx.strokeStyle = '#fffaf0';
-        ctx.lineWidth = 11;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 9;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         for (const yOff of [14, 78]) {
           ctx.beginPath();
-          ctx.moveTo(34, yOff + 32);
-          ctx.lineTo(s / 2, yOff + 6);
-          ctx.lineTo(s - 34, yOff + 32);
+          ctx.moveTo(36, yOff + 30);
+          ctx.lineTo(s / 2, yOff + 8);
+          ctx.lineTo(s - 36, yOff + 30);
           ctx.stroke();
         }
       }, { repeat: true }),
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.95,
       depthWrite: false,
     });
 
-    m.ramp = paintedMaterial(ramp, (ctx, s) => {
+    m.ramp = tile((ctx, s) => {
       ctx.fillStyle = t.ramp;
       ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 80, turfPalette, 55, { min: 4, max: 10, alpha: 0.38 });
-      strokes(ctx, s, 40, 'rgba(255,255,205,0.28)', 9, 2.9);
-      ctx.fillStyle = 'rgba(255,255,235,0.42)';
-      for (const yOff of [28, 64, 100]) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      for (const yOff of [30, 64, 98]) {
         ctx.beginPath();
-        ctx.moveTo(s / 2, yOff - 15);
-        ctx.lineTo(s - 34, yOff + 7);
-        ctx.lineTo(34, yOff + 7);
+        ctx.moveTo(s / 2, yOff - 13);
+        ctx.lineTo(s - 38, yOff + 6);
+        ctx.lineTo(38, yOff + 6);
         ctx.closePath();
         ctx.fill();
       }
     });
-    m.rampSide = toon({ color: t.soil });
+    m.rampSide = matte({ color: t.soil });
 
-    // Cliff face: a lip of grass over layered soil. Two world units tall, clamped (never repeats down).
-    m.cliff = paintedMaterial(ramp, (ctx, w, h) => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, t.soil);
-      g.addColorStop(1, t.soilDark);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-      dabs(ctx, w, h, 110, ['#dcae7c', '#b8865a', '#8f6a52', '#9c7c9e', '#c9905e', '#7a5a48'], 17, { min: 5, max: 12, alpha: 0.5, stretch: 2.4 });
-      ctx.fillStyle = 'rgba(255,235,200,0.3)';
-      for (let i = 0; i < 16; i++) {
-        ctx.beginPath();
-        ctx.ellipse(hash2(i, 2.4) * w, 34 + hash2(i, 5.7) * (h - 40), 5 + hash2(i, 1.2) * 5, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // overhanging grass with scalloped drips (tiles horizontally)
-      ctx.fillStyle = t.turfDark;
-      ctx.fillRect(0, 0, w, 15);
-      for (let i = 0; i < 8; i++) {
-        ctx.beginPath();
-        ctx.arc((i + 0.5) * (w / 8), 14, w / 16, 0, Math.PI);
-        ctx.fill();
-      }
-      for (let i = 0; i < 4; i++) {
-        ctx.beginPath();
-        ctx.arc((i * 2 + 0.5) * (w / 8), 20, w / 22, 0, Math.PI);
-        ctx.fill();
-      }
-      ctx.fillStyle = t.turfB;
-      ctx.fillRect(0, 0, w, 6);
-      dabs(ctx, w, 20, 30, ['#c4e86e', '#5aa84c', '#4aa07a'], 23, { min: 2, max: 5, alpha: 0.6 });
-    }, { height: 256 });
-    m.cliff.map.wrapT = THREE.ClampToEdgeWrapping;
-    m.rock = toon({ color: t.rock });
-
-    // Boxwood hedge (walls)
-    m.hedge = paintedMaterial(ramp, (ctx, s) => {
-      ctx.fillStyle = t.hedge;
-      ctx.fillRect(0, 0, s, s);
-      dabs(ctx, s, s, 40, ['#2a6a52', '#3b5f8a', '#5aa84c', '#234f38'], 27, { min: 5, max: 10, alpha: 0.45 });
-      ctx.fillStyle = t.hedgeDark;
-      for (let i = 0; i < 60; i++) {
-        ctx.beginPath();
-        ctx.arc(hash2(i, 2.7) * s, hash2(i, 8.1) * s, 4 + hash2(i, 4.3) * 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = 'rgba(200,240,150,0.5)';
-      for (let i = 0; i < 46; i++) {
-        ctx.beginPath();
-        ctx.arc(hash2(i, 5.9) * s, hash2(i, 1.6) * s, 2.5 + hash2(i, 7.7) * 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Cliff face: a clean lip of turf over soil that deepens toward the foot. Two world units tall, clamped.
+    m.cliff = matte({
+      map: makeCanvasTex(32, (ctx, w, h) => {
+        const g = ctx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, t.soil);
+        g.addColorStop(1, t.soilDark);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = t.turfEdge;
+        ctx.fillRect(0, 0, w, 15);
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        ctx.fillRect(0, 15, w, 3);
+      }, { height: 256 }),
     });
+    m.cliff.map.wrapS = THREE.RepeatWrapping;
+    m.rock = matte({ color: t.rock, flatShading: true });
 
-    m.rimGrass = toon({ color: t.turfDark });
-    m.rimSand = toon({ color: t.sandLine });
-    m.rimIce = toon({ color: 0xb4dcec });
-    m.rimMud = toon({ color: t.mudDark });
-    m.rimWater = toon({ color: t.waterDeep });
-    m.rimConv = toon({ color: t.plankDark });
+    m.hedge = matte({ color: t.hedge, roughness: 1 });
 
-    // Bouncy mushroom (springs)
-    m.shroomStem = toon({ color: 0xf7edd8 });
-    m.shroomCap = toon({ color: 0xe2503a });
-    m.shroomSpot = toon({ color: 0xfffaf0 });
+    m.rimGrass = matte({ color: t.turfEdge });
+    m.rimSand = matte({ color: t.sandLine });
+    m.rimIce = matte({ color: t.iceEdge });
+    m.rimMud = matte({ color: t.mudDark });
+    m.rimWater = matte({ color: t.waterDeep });
+    m.rimConv = matte({ color: t.plankDark });
 
-    // The pin and cup are real objects in a painted world: physically shaded, with reflections.
-    const std = (o) => new THREE.MeshStandardMaterial({ envMap: this.envMap, ...o });
-    m.cupWall = std({ color: 0xe9e6dc, roughness: 0.55, metalness: 0.05, side: THREE.BackSide, envMapIntensity: 0.4 });
-    m.cupFloor = new THREE.MeshBasicMaterial({ color: 0x0c0a08 });
-    m.cupLip = std({ color: 0xf7f5ee, roughness: 0.35, metalness: 0.1, envMapIntensity: 0.8 });
+    // Toadstool (springs)
+    m.shroomStem = matte({ color: 0xf6eedd, roughness: 0.8 });
+    m.shroomCap = matte({ color: 0xd9412f, roughness: 0.35, envMap: this.envMap, envMapIntensity: 0.5 });
+    m.shroomSpot = matte({ color: 0xffffff, roughness: 0.5 });
+
+    // Cup, pin and flag: real objects on the model
+    const real = (o) => new THREE.MeshStandardMaterial({ envMap: this.envMap, ...o });
+    m.cupDisc = new THREE.MeshBasicMaterial({ color: 0x0d0b09 });
+    m.cupLip = real({ color: 0xf7f5ee, roughness: 0.35, metalness: 0.1, envMapIntensity: 0.8 });
     m.pole = new THREE.MeshPhysicalMaterial({ color: 0xfbfaf4, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.2, envMap: this.envMap, envMapIntensity: 0.9 });
-    m.metal = std({ color: 0xd8d8d2, roughness: 0.22, metalness: 1, envMapIntensity: 1.2 });
-    m.flag = std({
+    m.metal = real({ color: 0xd8d8d2, roughness: 0.22, metalness: 1, envMapIntensity: 1.2 });
+    m.flag = real({
       map: makeCanvasTex(128, (ctx, s) => {
-        ctx.fillStyle = '#e8232d';
+        ctx.fillStyle = '#e02630';
         ctx.fillRect(0, 0, s, s);
-        // woven nylon: a faint weave and a stitched hem
-        ctx.globalAlpha = 0.07;
+        ctx.globalAlpha = 0.06;
         ctx.fillStyle = '#000';
         for (let i = 0; i < s; i += 2) ctx.fillRect(i, 0, 1, s);
         for (let i = 0; i < s; i += 2) ctx.fillRect(0, i, s, 1);
-        ctx.globalAlpha = 0.22;
+        ctx.globalAlpha = 0.2;
         ctx.strokeStyle = '#5a0a10';
         ctx.lineWidth = 3;
         ctx.strokeRect(3, 3, s - 6, s - 6);
         ctx.globalAlpha = 1;
       }),
       roughness: 0.7,
-      metalness: 0,
       side: THREE.DoubleSide,
       envMapIntensity: 0.4,
       // cloth passes light: keep the shaded side a rich red rather than letting it go black
       emissive: 0xb0121c,
-      emissiveIntensity: 0.45,
+      emissiveIntensity: 0.4,
     });
 
     const beamTex = makeCanvasTex(64, (ctx, s) => {
@@ -1166,18 +753,17 @@ export class GolfRenderer3D {
       mat.userData.baseOpacity = opacity;
       return mat;
     };
-    m.beamCup = beam(0xfff2c0, 0.2);
-    m.beamA = beam(0x6ff0e0, 0.26);
-    m.beamB = beam(0xffc08a, 0.26);
+    m.beamA = beam(0x7fe6da, 0.2);
+    m.beamB = beam(0xffc79a, 0.2);
 
-    // Standing-stone rings with a slow swirl of light (portals)
-    m.stone = toon({ color: 0xbdb6a6 });
+    // Stone rings with a slow swirl (portals)
+    m.stone = matte({ color: 0xc9c3b6, roughness: 0.8 });
     const swirlTex = makeCanvasTex(128, (ctx, s) => {
       ctx.clearRect(0, 0, s, s);
       ctx.translate(s / 2, s / 2);
       ctx.strokeStyle = '#fff';
       ctx.lineCap = 'round';
-      ctx.lineWidth = 9;
+      ctx.lineWidth = 8;
       for (let arm = 0; arm < 3; arm++) {
         ctx.beginPath();
         for (let i = 0; i <= 40; i++) {
@@ -1192,11 +778,10 @@ export class GolfRenderer3D {
       base: new THREE.MeshBasicMaterial({ color: base }),
       disc: new THREE.MeshBasicMaterial({ map: swirlTex, color: swirl, transparent: true, opacity: 0.95, depthWrite: false }),
     });
-    m.portalA = pool(0x1fae9f, 0xcffff6);
-    m.portalB = pool(0xf07f45, 0xfff0d0);
+    m.portalA = pool(0x1f9f93, 0xd6fff8);
+    m.portalB = pool(0xe57a44, 0xfff1d6);
 
     m.flower = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    m.tuft = toon({ color: 0xffffff });
 
     this.mats = m;
   }
@@ -1209,28 +794,19 @@ export class GolfRenderer3D {
     this.hemi.intensity = t.hemiInt;
     this.sun.color.setHex(t.sunColor);
     this.sun.intensity = t.sunInt;
-    this.rim.color.setHex(t.rimColor);
-    this.rim.intensity = t.rimInt;
-    // Lower, longer light at golden hour
-    if (this.themeName === 'dark') this.sun.position.set(-10, 10, 8);
-    else this.sun.position.set(-7, 15, 9);
+    this.fill.color.setHex(t.fillColor);
+    this.fill.intensity = t.fillInt;
 
     const u = this.backdropUniforms;
     u.cTop.value.set(t.skyTop);
     u.cMid.value.set(t.skyMid);
-    u.cHaze.value.set(t.skyHaze);
-    u.cSun.value.set(t.sunGlow);
-    u.cCloud.value.set(t.cloud);
-    u.cCloudShade.value.set(t.cloudShade);
+    u.cHorizon.value.set(t.horizon);
+    u.cFloor.value.set(t.floor);
     u.cHillFar.value.set(t.hillFar);
-    u.cHillMid.value.set(t.hillMid);
     u.cHillNear.value.set(t.hillNear);
-    u.cValley.value.set(t.valley);
-    u.cMist.value.set(t.mist);
-
-    this.cloudMat.color.setHex(t.cloud3d);
-    this.cloudMat.emissive.set(t.cloudShade);
-    if (this.bloomPass) this.bloomPass.strength = t.bloom;
+    u.cSun.value.set(t.sunGlow);
+    u.uShade.value = t.groundShade;
+    u.uGlow.value = t.glow;
 
     this.buildMaterials();
     if (this.level) {
@@ -1283,22 +859,18 @@ export class GolfRenderer3D {
     for (const d of this.levelDisposables) d.dispose();
     this.levelDisposables = [];
     this.columns = [];
-    this.portalRings = [];
     this.portalDiscs = [];
-    this.springRings = [];
+    this.springs = [];
     this.beams = [];
-    this.flora = [];
+    this.flowers = null;
     this.flagCloth = null;
-    this.cupCap = null;
-    this.cupDisc = null;
     this.clearArrows();
 
     const m = this.mats;
     const s = TILE_SIZE;
     const colGeos = new Map();
     const maxDist = Math.hypot(level.width, level.height) / 2;
-    const flowers = [];
-    const tufts = [];
+    const flowerSpots = [];
     const dummy = new THREE.Object3D();
     let maxElev = 0;
 
@@ -1335,7 +907,7 @@ export class GolfRenderer3D {
         // Rock underside: longest under the middle of the island
         const centre = Math.hypot(x - (level.width - 1) / 2, y - (level.height - 1) / 2);
         const stal = new THREE.Mesh(this.geo.stal, m.rock);
-        stal.scale.y = 0.35 + (1 - centre / maxDist) * 1.25 + hash2(x * 3.1, y * 1.7) * 0.5;
+        stal.scale.y = 0.3 + (1 - centre / maxDist) * 1.2 + hash2(x * 3.1, y * 1.7) * 0.4;
         stal.position.y = -BASE_THICKNESS;
         col.add(stal);
 
@@ -1345,7 +917,7 @@ export class GolfRenderer3D {
           wedge.position.y = topY;
           col.add(wedge);
         } else {
-          let topMat = m.grass[((x + y) % 2) * 2 + (hash2(x * 1.7, y * 2.3) > 0.5 ? 1 : 0)];
+          let topMat = (x + y) % 2 === 0 ? m.grassA : m.grassB;
           let rimMat = m.rimGrass;
           if (isSand) { topMat = m.sand; rimMat = m.rimSand; }
           else if (cell.terrain === TERRAIN.ICE) { topMat = m.ice; rimMat = m.rimIce; }
@@ -1357,7 +929,6 @@ export class GolfRenderer3D {
           cap.position.y = topY - CAP_H / 2;
           cap.receiveShadow = true;
           col.add(cap);
-          if (cell.terrain === TERRAIN.CUP) this.cupCap = cap;
           if (isConv) {
             // Chevrons point -Z (N) in texture space; spin the tile so they point along the strip.
             const spin = [0, -Math.PI / 2, Math.PI, Math.PI / 2][CONV_DIR[cell.terrain]];
@@ -1369,24 +940,14 @@ export class GolfRenderer3D {
           }
         }
 
-        // Wildflowers and grass tufts on open turf, kept clear of the middle of the tile
+        // A few small white flowers, sparingly, kept clear of the middle of the tile
         const isOpenTurf = cell.terrain === TERRAIN.GRASS && !(x === level.start.x && y === level.start.y);
-        if (isOpenTurf) {
-          const nTufts = 3 + Math.floor(hash2(x * 5.3, y * 2.9) * 4);
-          for (let i = 0; i < nTufts; i++) {
-            const ang = hash2(x * 7 + i, y * 3 + i * 1.7) * Math.PI * 2;
-            const rad = 0.3 + hash2(x + i * 2.3, y * 9 + i) * 0.14;
-            tufts.push({ x: pos.x + Math.cos(ang) * rad, y: pos.y, z: pos.z + Math.sin(ang) * rad, k: hash2(x * 2 + i, y * 4 + i) });
-          }
-          if (hash2(x * 1.9, y * 6.7) > 0.28) {
-            const ang = hash2(x * 4.1, y * 8.3) * Math.PI * 2;
-            const n = 2 + Math.floor(hash2(x * 8.8, y * 1.3) * 5);
-            const hue = Math.floor(hash2(x * 3.3, y * 5.5) * 5);
-            for (let i = 0; i < n; i++) {
-              const a = ang + (i - 2) * 0.36 + (hash2(x * 2 + i, y) - 0.5) * 0.2;
-              const rad = 0.31 + hash2(x + i, y + i * 3.1) * 0.14;
-              flowers.push({ x: pos.x + Math.cos(a) * rad, y: pos.y, z: pos.z + Math.sin(a) * rad, hue });
-            }
+        if (isOpenTurf && hash2(x * 1.9, y * 6.7) > 0.72) {
+          const ang = hash2(x * 4.1, y * 8.3) * Math.PI * 2;
+          for (let i = 0; i < 3; i++) {
+            const a = ang + i * 0.5;
+            const rad = 0.33 + hash2(x + i, y + i * 3.1) * 0.1;
+            flowerSpots.push({ x: pos.x + Math.cos(a) * rad, y: pos.y + 0.022, z: pos.z + Math.sin(a) * rad });
           }
         }
 
@@ -1424,7 +985,7 @@ export class GolfRenderer3D {
           }
           shroom.userData.phase = x * 1.3 + y * 0.7;
           col.add(shroom);
-          this.springRings.push(shroom);
+          this.springs.push(shroom);
         }
 
         if (cell.terrain === TERRAIN.PORTAL_A || cell.terrain === TERRAIN.PORTAL_B) {
@@ -1445,105 +1006,60 @@ export class GolfRenderer3D {
           this.portalDiscs.push(disc);
 
           const beam = new THREE.Mesh(this.geo.beam, isA ? m.beamA : m.beamB);
-          beam.scale.set(1.2, 0.9, 1.2);
+          beam.scale.set(1.2, 0.8, 1.2);
           beam.position.y = pos.y + 0.04;
           beam.userData.phase = isA ? 0 : 2;
-          beam.layers.set(LAYER_FX);
           col.add(beam);
           this.beams.push(beam);
         }
 
         if (cell.terrain === TERRAIN.CUP) {
-          // The pin is a real object set into the painting: a sunk cup liner, a fibreglass stick, a cloth flag.
-          const pin = new THREE.Group();
-          const wall = new THREE.Mesh(this.geo.cupWall, m.cupWall);
-          // the liner sits inside the turf cap, which the pieces pass hides for this one tile
-          wall.position.y = pos.y - 0.05;
-          pin.add(wall);
-          const floor = new THREE.Mesh(this.geo.cupFloor, m.cupFloor);
-          floor.position.y = pos.y - 0.096;
-          pin.add(floor);
-          // without the composer there is no depth trick to see into the cup: fall back to a dark disc
-          this.cupDisc = new THREE.Mesh(this.geo.cupFloor, m.cupFloor);
-          this.cupDisc.position.y = pos.y + 0.006;
-          pin.add(this.cupDisc);
+          const hole = new THREE.Mesh(this.geo.cupDisc, m.cupDisc);
+          hole.position.y = pos.y + 0.006;
+          col.add(hole);
           const lip = new THREE.Mesh(this.geo.cupLip, m.cupLip);
           lip.position.y = pos.y + 0.008;
-          pin.add(lip);
+          col.add(lip);
 
           const pole = new THREE.Mesh(this.geo.pole, m.pole);
           pole.position.y = pos.y + 0.62;
-          pin.add(pole);
+          pole.castShadow = true;
+          col.add(pole);
           const finial = new THREE.Mesh(this.geo.finial, m.metal);
           finial.position.y = pos.y + 1.34;
-          pin.add(finial);
+          col.add(finial);
 
           // cloth: its own geometry, because the vertices are waved every frame
           const flagGeo = this.track(this.geo.flag.clone());
           flagGeo.userData.rest = flagGeo.attributes.position.array.slice();
           this.flagCloth = new THREE.Mesh(flagGeo, m.flag);
           this.flagCloth.position.set(0.014, pos.y + 1.1, 0);
-          pin.add(this.flagCloth);
-          col.add(onLayer(pin, LAYER_PIECES));
-
-          // A soft shaft of sunlight so the pin is easy to find on a small screen
-          const beam = new THREE.Mesh(this.geo.beam, m.beamCup);
-          beam.scale.set(1.5, 2.0, 1.5);
-          beam.position.y = pos.y + 0.03;
-          beam.userData.phase = 1;
-          beam.layers.set(LAYER_FX);
-          col.add(beam);
-          this.beams.push(beam);
+          this.flagCloth.castShadow = true;
+          col.add(this.flagCloth);
         }
       }
     }
 
-    // Flora is instanced; it blooms once the course has finished building.
-    if (tufts.length > 0) {
-      const mesh = this.track(new THREE.InstancedMesh(this.geo.tuft, m.tuft, tufts.length));
-      const t = THEMES[this.themeName];
-      const cA = new THREE.Color(t.turfDark);
-      const cB = new THREE.Color(t.ramp);
-      const c = new THREE.Color();
-      tufts.forEach((f, i) => {
+    // Flowers are instanced; they open once the course has finished building.
+    if (flowerSpots.length > 0) {
+      const mesh = this.track(new THREE.InstancedMesh(this.geo.flower, m.flower, flowerSpots.length));
+      flowerSpots.forEach((f, i) => {
         dummy.position.set(f.x, f.y, f.z);
-        dummy.rotation.set((f.k - 0.5) * 0.5, f.k * 6, (f.k - 0.5) * 0.4);
-        dummy.scale.set(0.9 + f.k * 0.6, 0.9 + f.k * 1.1, 0.9 + f.k * 0.6);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
-        mesh.setColorAt(i, c.copy(cA).lerp(cB, f.k));
-      });
-      mesh.castShadow = true;
-      this.boardGroup.add(mesh);
-      this.flora.push(mesh);
-    }
-    if (flowers.length > 0) {
-      const mesh = this.track(new THREE.InstancedMesh(this.geo.flower, m.flower, flowers.length));
-      const palette = [0xffffff, 0xffe37a, 0xffa6c9, 0xcdb0ff, 0xf2553a].map((h) => new THREE.Color(h));
-      dummy.rotation.set(0, 0, 0);
-      flowers.forEach((f, i) => {
-        dummy.position.set(f.x, f.y + 0.035, f.z);
-        dummy.scale.setScalar(1);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-        mesh.setColorAt(i, palette[f.hue]);
       });
       this.boardGroup.add(mesh);
-      this.flora.push(mesh);
+      this.flowers = mesh;
     }
 
     this.maxElev = maxElev;
-    this.cloudBase = Math.max(level.width, level.height) / 2;
     this.introT = intro && !this.reducedMotion ? 0 : Infinity;
     this.floraT = 1;
     if (this.introT === 0) {
       for (const col of this.columns) col.visible = false;
       this.floraT = 0;
     }
-    for (const f of this.flora) {
-      f.visible = this.floraT === 1;
-      f.scale.set(1, 1, 1);
-    }
+    if (this.flowers) this.flowers.visible = this.floraT === 1;
     this.placeBallImmediate(ballPos.x, ballPos.y, this.ballElev);
     if (this.introT === 0) this.ballPop = -0.45;
     this.fitCamera();
@@ -1641,7 +1157,7 @@ export class GolfRenderer3D {
       const p1 = this.gridToWorld(seg.to.x, seg.to.y, seg.toElev);
       const arc = seg.type === 'arc' || seg.type === 'spring' || seg.type === 'bounce_arc';
       const dist = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-      const steps = Math.max(2, Math.round(dist * (arc ? 4 : 3)));
+      const steps = Math.max(2, Math.round(dist * (arc ? 3.2 : 2.5)));
       const peak = seg.type === 'bounce_arc' ? 0.55 : seg.high ? 1.55 : seg.type === 'spring' ? 1.35 : 0.95;
       for (let i = 1; i <= steps; i++) {
         const u = i / steps;
@@ -1658,7 +1174,7 @@ export class GolfRenderer3D {
   }
 
   /**
-   * Show 4 neon direction chevrons around the ball, a dotted flight path for each
+   * Show 4 direction chevrons around the ball, a dotted flight path for each
    * and a pulsing landing ring. Chevrons and landing tiles are both tappable.
    */
   showDirections(card, recommendedDir = null) {
@@ -1674,17 +1190,16 @@ export class GolfRenderer3D {
       const isBad = Boolean(sim.hazard || sim.stuckInSand);
       const moved = sim.endPos.x !== this.ballPos.x || sim.endPos.y !== this.ballPos.y;
       const isIdle = !moved && !sim.hazard && !sim.won;
-
-      const color = isRec || sim.won ? PAINT.gold : isBad ? PAINT.bad : isIdle ? PAINT.idle : PAINT.good;
+      const color = isRec || sim.won ? GUIDE.gold : isBad ? GUIDE.bad : isIdle ? GUIDE.idle : GUIDE.good;
 
       const arrow = new THREE.Group();
-      // Painted chevron with a dark keyline so it reads on turf, sand and ice alike
+      // A fine dark keyline under each chevron keeps it legible on turf, sand and ice alike
       const outline = new THREE.Mesh(
         this.geo.chevron,
-        new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: isIdle, opacity: isIdle ? 0.3 : 1 })
+        new THREE.MeshBasicMaterial({ color: GUIDE.key, transparent: true, opacity: isIdle ? 0.25 : 0.85 })
       );
       outline.userData.ownMaterial = true;
-      outline.scale.set(1.2, 0.5, 1.2);
+      outline.scale.set(1.18, 0.5, 1.18);
       outline.position.set(0, -0.035, 0.6);
       arrow.add(outline);
       const chev = new THREE.Mesh(
@@ -1695,13 +1210,11 @@ export class GolfRenderer3D {
       chev.position.z = 0.6;
       if (isRec) {
         chev.scale.setScalar(1.25);
-        outline.scale.set(1.45, 0.5, 1.45);
+        outline.scale.set(1.42, 0.5, 1.42);
       }
       arrow.add(chev);
       arrow.userData.chev = chev;
       arrow.userData.outline = outline;
-      chev.layers.set(LAYER_PIECES);
-      outline.layers.set(LAYER_PIECES);
 
       // Generous invisible touch target
       const hit = new THREE.Mesh(this.geo.hitArrow, new THREE.MeshBasicMaterial({ visible: false }));
@@ -1722,18 +1235,13 @@ export class GolfRenderer3D {
       // Dotted flight path
       const pts = this.samplePath(sim);
       if (pts.length > 0) {
-        const dots = new THREE.InstancedMesh(
-          this.geo.dot,
-          new THREE.MeshBasicMaterial({ color }),
-          pts.length
-        );
+        const dots = new THREE.InstancedMesh(this.geo.dot, new THREE.MeshBasicMaterial({ color }), pts.length);
         pts.forEach((p, i) => {
           dummy.position.copy(p);
           dummy.updateMatrix();
           dots.setMatrixAt(i, dummy.matrix);
         });
         dots.instanceMatrix.needsUpdate = true;
-        dots.layers.set(LAYER_PIECES);
         this.previewGroup.add(dots);
       }
 
@@ -1743,24 +1251,18 @@ export class GolfRenderer3D {
         const ep = this.gridToWorld(sim.endPos.x, sim.endPos.y, endElev);
         const halo = new THREE.Mesh(
           this.geo.ring,
-          new THREE.MeshBasicMaterial({ color: PAINT.outline, side: THREE.DoubleSide })
+          new THREE.MeshBasicMaterial({ color: GUIDE.key, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false })
         );
         halo.position.set(ep.x, ep.y + 0.034, ep.z);
-        halo.scale.setScalar(1.14);
         halo.userData.phase = d.id * 0.9;
-        halo.userData.base = 1.14;
-        halo.layers.set(LAYER_PIECES);
+        halo.userData.base = 1.13;
         this.previewGroup.add(halo);
         this.previewRings.push(halo);
 
-        const ring = new THREE.Mesh(
-          this.geo.ring,
-          new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
-        );
+        const ring = new THREE.Mesh(this.geo.ring, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
         ring.position.set(ep.x, ep.y + 0.04, ep.z);
         ring.userData.phase = d.id * 0.9;
         ring.userData.base = 1;
-        ring.layers.set(LAYER_PIECES);
         this.previewGroup.add(ring);
         this.previewRings.push(ring);
 
@@ -1824,7 +1326,6 @@ export class GolfRenderer3D {
         life: 0.55 + Math.random() * 0.4,
         age: 0,
       };
-      m.layers.set(LAYER_PIECES);
       this.fxGroup.add(m);
       this.particles.push(m);
     }
@@ -1833,9 +1334,9 @@ export class GolfRenderer3D {
   spawnVictoryConfetti(gx, gy, elev) {
     const p = this.gridToWorld(gx, gy, elev);
     p.y += 0.3;
-    const colors = [0xf5c542, 0xfffaf0, 0xffa6c9, 0x9fe27a, 0x9fd2f5, 0xd9372c];
+    const colors = [0xe9b949, 0xffffff, 0xf3ead6, 0x8fd08a, 0xe02630];
     for (const c of colors) {
-      this.spawnParticles(p, c, 9, 3.2);
+      this.spawnParticles(p, c, 9, 3.0);
     }
   }
 
@@ -1848,13 +1349,13 @@ export class GolfRenderer3D {
 
     // Extents of the island as seen by the isometric camera, in world units on the view plane.
     const span = this.level ? Math.max(this.level.width, this.level.height) : 6;
-    const maxElev = this.maxElev || 0;
     const half = (span * Math.SQRT2) / 2;
     const halfW = half + 0.12;
-    const up = half * CAM_ELEV_SIN + (maxElev * ELEV_STEP + 1.5) * CAM_ELEV_COS;
+    const up = half * CAM_ELEV_SIN + (this.maxElev * ELEV_STEP + 1.5) * CAM_ELEV_COS;
     const down = half * CAM_ELEV_SIN + (BASE_THICKNESS + 0.7) * CAM_ELEV_COS;
 
-    const worldPerPx = Math.max((2 * halfW) / freeW, (up + down) / freeH) * 1.03;
+    // Leave some air around the model: it should sit in the space, not fill it.
+    const worldPerPx = Math.max((2 * halfW) / freeW, (up + down) / freeH) * 1.1;
     this.frustumSize = worldPerPx * h;
     const viewW = worldPerPx * w;
 
@@ -1870,26 +1371,17 @@ export class GolfRenderer3D {
 
     this.renderer.setSize(w, h, false);
     const pr = this.renderer.getPixelRatio();
-    if (this.composer) {
-      this.composer.setPixelRatio(pr);
-      this.composer.setSize(w, h);
-    }
-    if (this.paintPass) {
-      const pu = this.paintPass.uniforms;
-      pu.uTexel.value.set(1 / (w * pr), 1 / (h * pr));
-      // Brush size follows the screen, so phones and desktops get the same touch.
-      pu.uSpread.value = Math.max(0.6, (Math.min(w, h) / 520) * pr * 0.46);
-      pu.uAspect.value = w / h;
-    }
 
-    // Backdrop: horizon through the middle of the free region, sun rising behind the peak.
+    // Backdrop: horizon a little above the middle of the free region, glow up toward the light,
+    // and the island's ground shadow below its lowest point.
     const u = this.backdropUniforms;
-    u.uRes.value.set(w * pr, h * pr);
+    const freeCx = ins.left + freeW / 2;
     const freeCy = ins.bottom + freeH / 2; // CSS px from the bottom
-    u.uHorizon.value = (freeCy - freeH * 0.02) / h;
-    // Sun high over the far shoulder of the course
-    u.uSun.value.set((ins.left + freeW * 0.8) * pr, (ins.bottom + freeH * 0.84) * pr);
-    this.moteMat.size = 4.5 * pr;
+    const originY = freeCy - (up - down) / 2 / worldPerPx;
+    u.uRes.value.set(w * pr, h * pr);
+    u.uHorizon.value = (freeCy + freeH * 0.1) / h;
+    u.uSun.value.set((ins.left + freeW * 0.24) * pr, (ins.bottom + freeH * 0.9) * pr);
+    u.uShadow.value.set(freeCx * pr, (originY - (down / worldPerPx) * 1.12) * pr, (halfW / worldPerPx) * 0.92 * pr);
   }
 
   resize() {
@@ -1966,8 +1458,9 @@ export class GolfRenderer3D {
     const rawDt = this.clock.getDelta();
     const dt = Math.min(0.05, rawDt);
     const elapsed = this.clock.getElapsedTime();
+    const still = this.reducedMotion;
 
-    // Adaptive quality: if frames stay slow with bloom on, fall back to the direct path.
+    // Adaptive quality: if frames stay slow at full density, render lighter.
     if (this.qualityMode === 'auto' && this.quality === 'high' && !document.hidden) {
       this.frameCount++;
       if (this.frameCount > 45) {
@@ -1978,9 +1471,9 @@ export class GolfRenderer3D {
 
     // Smooth camera orbit
     this.orbitAngle = THREE.MathUtils.damp(this.orbitAngle, this.targetOrbitAngle, 8, dt);
-    const shakeAmt = this.reducedMotion ? 0 : this.shake;
-    const shakeX = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt * 0.25 : 0;
-    const shakeY = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt * 0.25 : 0;
+    const shakeAmt = still ? 0 : this.shake;
+    const shakeX = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt * 0.2 : 0;
+    const shakeY = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt * 0.2 : 0;
     this.shake = Math.max(0, this.shake - dt * 3.5);
 
     this.camera.position.set(
@@ -1990,10 +1483,8 @@ export class GolfRenderer3D {
     );
     this.camera.lookAt(0, 0, 0);
 
-    this.backdropUniforms.uTime.value = this.reducedMotion ? 0 : elapsed;
-
-    // Floating island breath
-    this.islandGroup.position.y = this.reducedMotion ? 0 : Math.sin(elapsed * 1.15) * 0.05;
+    // The model drifts very slightly, as if suspended
+    this.islandGroup.position.y = still ? 0 : Math.sin(elapsed * 0.9) * 0.035;
 
     // Course build-in: columns rise from below, rippling out from the tee.
     if (this.introT !== Infinity) {
@@ -2010,6 +1501,15 @@ export class GolfRenderer3D {
       if (done) this.introT = Infinity;
     }
 
+    // Flowers open after the course has built
+    if (this.floraT < 1 && this.introT === Infinity) {
+      this.floraT = Math.min(1, this.floraT + dt * 2.6);
+      if (this.flowers) {
+        this.flowers.visible = true;
+        this.flowers.scale.y = Math.max(0.001, this.floraT);
+      }
+    }
+
     // Ball pop-in (new hole, hazard respawn)
     if (this.ballPop < 1 && !this.animQueue) {
       this.ballPop = Math.min(1, this.ballPop + dt * 3.6);
@@ -2019,38 +1519,28 @@ export class GolfRenderer3D {
       this.ballShadow.scale.setScalar(Math.max(0.001, u));
     }
 
-    // Flora blooms after the course has built
-    if (this.floraT < 1 && this.introT === Infinity) {
-      this.floraT = Math.min(1, this.floraT + dt * 2.6);
-      const u = this.floraT;
-      const e = 1 + 2.70158 * Math.pow(u - 1, 3) + 1.70158 * Math.pow(u - 1, 2);
-      for (const f of this.flora) {
-        f.visible = true;
-        f.scale.y = Math.max(0.001, e);
-      }
-    }
-
-    // Drifting water, boost chevrons, portal swirls, mushrooms, flag, light shafts
-    if (this.mats && !this.reducedMotion) {
-      this.mats.water.map.offset.set(Math.sin(elapsed * 0.7) * 0.025, Math.cos(elapsed * 0.5) * 0.015);
-      this.mats.chevrons.map.offset.y = -((elapsed * 0.8) % 1);
+    // Lapping water, sliding chevrons, portal swirls, toadstools, light shafts
+    if (this.mats && !still) {
+      this.mats.water.map.offset.set(Math.sin(elapsed * 0.6) * 0.03, Math.cos(elapsed * 0.45) * 0.02);
+      this.mats.chevrons.map.offset.y = -((elapsed * 0.7) % 1);
     }
     for (const pd of this.portalDiscs) {
-      pd.rotation.y = elapsed * 1.6 * pd.userData.spin;
+      pd.rotation.y = elapsed * 1.4 * pd.userData.spin;
     }
-    for (const sr of this.springRings) {
-      const k = Math.sin(elapsed * 2.4 + sr.userData.phase);
-      sr.scale.set(1 - k * 0.035, 1 + k * 0.06, 1 - k * 0.035);
+    for (const sp of this.springs) {
+      const k = still ? 0 : Math.sin(elapsed * 2.2 + sp.userData.phase);
+      sp.scale.set(1 - k * 0.03, 1 + k * 0.05, 1 - k * 0.03);
     }
     for (const b of this.beams) {
       b.material.opacity = b.material.userData.baseOpacity * (0.8 + 0.2 * Math.sin(elapsed * 1.6 + b.userData.phase));
     }
+
     if (this.flagCloth) {
       // Cloth in a light breeze: travelling waves that grow away from the stick, lit by recomputed normals.
       const geo = this.flagCloth.geometry;
       const rest = geo.userData.rest;
       const posAttr = geo.attributes.position;
-      const tt = this.reducedMotion ? 0 : elapsed;
+      const tt = still ? 0 : elapsed;
       for (let i = 0; i < posAttr.count; i++) {
         const x = rest[i * 3];
         const y = rest[i * 3 + 1];
@@ -2064,35 +1554,16 @@ export class GolfRenderer3D {
       this.flagCloth.rotation.y = Math.PI * 0.62 - this.orbitAngle + Math.sin(tt * 0.9) * 0.12;
     }
 
-    // Clouds circle slowly below the course
-    const base = this.cloudBase || 3;
-    this.clouds.children.forEach((cloud, i) => {
-      const sd = this.cloudSeeds[i];
-      const a = sd.ang + (this.reducedMotion ? 0 : elapsed * sd.speed);
-      cloud.position.set(Math.cos(a) * (base + sd.rad), sd.y, Math.sin(a) * (base + sd.rad));
-      cloud.rotation.y = -a;
-    });
-
-    // Motes drift upward and wrap
-    const mp = this.motes.geometry.attributes.position;
-    for (let i = 0; i < this.moteSeeds.length; i++) {
-      const sd = this.moteSeeds[i];
-      const yy = ((sd.y + elapsed * sd.speed + 3) % 9) - 3;
-      const a = sd.ang + elapsed * 0.05;
-      mp.setXYZ(i, Math.cos(a) * sd.rad, yy, Math.sin(a) * sd.rad);
-    }
-    mp.needsUpdate = true;
-
     // Pulse chevrons and landing rings
     for (const child of this.arrowGroup.children) {
       const chev = child.userData.chev;
       if (chev) {
-        chev.position.z = 0.6 + (Math.sin(elapsed * 5.2 + child.userData.dirId) * 0.5 + 0.5) * 0.09;
+        chev.position.z = 0.6 + (Math.sin(elapsed * 4.6 + child.userData.dirId) * 0.5 + 0.5) * 0.08;
         child.userData.outline.position.z = chev.position.z;
       }
     }
     for (const ring of this.previewRings) {
-      ring.scale.setScalar(ring.userData.base * (1 + (Math.sin(elapsed * 4.2 + ring.userData.phase) * 0.5 + 0.5) * 0.2));
+      ring.scale.setScalar(ring.userData.base * (1 + (Math.sin(elapsed * 3.8 + ring.userData.phase) * 0.5 + 0.5) * 0.18));
     }
 
     // Shot animation
@@ -2106,10 +1577,10 @@ export class GolfRenderer3D {
       this.ballMesh.rotation.z += dt * 4;
     }
 
-    // Comet trail
+    // Trail
     if (this.animQueue) {
       this.trailHistory.unshift(this.ballGroup.position.clone());
-      if (this.trailHistory.length > 26) this.trailHistory.length = 26;
+      if (this.trailHistory.length > 22) this.trailHistory.length = 22;
     } else if (this.trailHistory.length > 0) {
       this.trailHistory.length = Math.max(0, this.trailHistory.length - 2);
     }
@@ -2142,16 +1613,7 @@ export class GolfRenderer3D {
       p.scale.setScalar(Math.max(0.01, sc));
     }
 
-    if (this.cupDisc) this.cupDisc.visible = !this.composer;
-    if (this.composer) {
-      // painted image first (land + soft effects); PiecesPass adds the sharp layer
-      this.camera.layers.set(LAYER_WORLD);
-      this.camera.layers.enable(LAYER_FX);
-      this.composer.render(dt);
-    } else {
-      this.camera.layers.enableAll();
-      this.renderer.render(this.scene, this.camera);
-    }
+    this.renderer.render(this.scene, this.camera);
   }
 
   stepAnimation(dt) {
@@ -2197,7 +1659,7 @@ export class GolfRenderer3D {
       this.ballShadow.position.set(x, p0.y + 0.015, z);
       if (u >= 0.5 && !q.firedEvents.has(`b-${q.index}`)) {
         q.firedEvents.add(`b-${q.index}`);
-        this.shake = 0.35;
+        this.shake = 0.3;
         this.spawnParticles(this.ballGroup.position, 0xffffff, 6, 1.4);
         if (q.onEvent) q.onEvent('bounce');
       }
@@ -2211,15 +1673,15 @@ export class GolfRenderer3D {
       if (!half && !q.firedEvents.has(`tp-${q.index}`)) {
         q.firedEvents.add(`tp-${q.index}`);
         this.trailHistory.length = 0;
-        this.spawnParticles(p0, 0xcffff6, 10, 2.0);
-        this.spawnParticles(p1, 0xfff0d0, 12, 2.2);
+        this.spawnParticles(p0, 0xd6fff8, 10, 2.0);
+        this.spawnParticles(p1, 0xfff1d6, 12, 2.2);
         if (q.onEvent) q.onEvent('portal');
       }
     } else if (seg.type === 'sink') {
       // Drop into the cup
       const e = u * u;
       this.ballGroup.position.set(p1.x, p1.y + BALL_R - e * 0.3, p1.z);
-      this.ballGroup.scale.setScalar(1 - e * 0.3);
+      this.ballGroup.scale.setScalar(1 - e * 0.4);
       this.ballShadow.visible = false;
     } else {
       const x = THREE.MathUtils.lerp(p0.x, p1.x, u);
@@ -2237,7 +1699,7 @@ export class GolfRenderer3D {
 
       // Per-segment arrival feedback
       if (seg.type === 'spring') {
-        this.spawnParticles(p0, 0xfffaf0, 8, 1.8);
+        this.spawnParticles(p0, 0xffffff, 8, 1.8);
         if (q.onEvent) q.onEvent('spring');
       }
       if (seg.type === 'slide' && !q.firedEvents.has('ice')) {
@@ -2253,13 +1715,13 @@ export class GolfRenderer3D {
         this.animResolve = null;
 
         if (res.hazard === 'water' || res.hazard === 'void') {
-          this.shake = 0.5;
+          this.shake = 0.4;
           this.spawnParticles(this.ballGroup.position, res.hazard === 'water' ? 0xd8f3ff : 0xffffff, 18, 2.6);
           if (q.onEvent) q.onEvent('water');
           this.placeBallImmediate(res.endPos.x, res.endPos.y, endTile.elev);
           this.ballPop = 0; // respawn pop
         } else if (res.won) {
-          this.shake = 0.3;
+          this.shake = 0.25;
           this.spawnVictoryConfetti(res.endPos.x, res.endPos.y, endTile.elev);
           if (q.onEvent) q.onEvent('sink');
           // Leave the ball resting in the cup.
@@ -2267,7 +1729,7 @@ export class GolfRenderer3D {
           this.ballElev = endTile.elev;
         } else {
           if (res.events.includes('sand_stop') || res.stuckInSand) {
-            this.spawnParticles(this.ballGroup.position, 0xf5e4ae, 12, 1.8);
+            this.spawnParticles(this.ballGroup.position, 0xf1e2bd, 12, 1.8);
             if (q.onEvent) q.onEvent('sand');
           }
           this.placeBallImmediate(res.endPos.x, res.endPos.y, endTile.elev);
