@@ -1,6 +1,6 @@
 # Life of Golf
 
-**[Play now on GitHub Pages](https://bradflaugher.github.io/life-of-golf/)**
+**[lifeofgolf.win](https://lifeofgolf.win/)**
 
 <p align="center">
   <img src="docs/gameplay.gif" width="100%" alt="Life of Golf gameplay: an isometric 3D golf hole floating over a calm ivory backdrop, playing through a 4-stroke Championship hole with drive, chip, and putt cards to sink Par.">
