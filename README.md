@@ -3,7 +3,7 @@
 **[Play now on GitHub Pages](https://bradflaugher.github.io/life-of-golf/)**
 
 <p align="center">
-  <img src="docs/gameplay.png" width="100%" alt="Life of Golf on desktop and phone: a clean isometric model of a golf hole floating over a calm ivory backdrop, with a row of white shot cards below and a typographic scorecard above.">
+  <img src="docs/gameplay.gif" width="100%" alt="Life of Golf gameplay: an isometric 3D golf hole floating over a calm ivory backdrop, playing through a 4-stroke Championship hole with drive, chip, and putt cards to sink Par.">
 </p>
 
 An infinite isometric 3D golf puzzle card game inspired by *Golf Peaks*, played on small floating model courses, with a quiet, typographic interface, powered by a tiny on-device neural network (**`CaddieNet-v1`**, 3,746 parameters, 25 KB) running **100% locally in your browser** with zero servers and zero data collection.
