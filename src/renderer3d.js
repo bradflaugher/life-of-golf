@@ -74,10 +74,10 @@ const THEMES = {
   dark: {
     skyTop: '#081b14',
     skyMid: '#0f2a20',
-    horizon: '#133026',
+    horizon: '#10291f',
     floor: '#0a1f17',
-    hillFar: '#112b22',
-    hillNear: '#0f271e',
+    hillFar: '#0f271e',
+    hillNear: '#0e241b',
     sunGlow: '#5c8f72',
     glow: 0.2,
     groundShade: 0.38,

@@ -5,6 +5,7 @@ import {
   DIFFICULTY_PRESETS,
   DIRS,
   generateLevel,
+  hashSeed,
   simulateShot,
   solveLevel,
   formatCardLabel,
@@ -24,7 +25,7 @@ const state = {
   dailyMode: false,
   dailyDate: null, // YYYY-MM-DD of the daily course being played
   holeDone: false, // this hole has already been counted toward the streak
-  doneKeys: [], // identities of recently completed holes, so replays and reloads never count twice
+  doneKeys: new Set(), // identities of every completed hole, so replays and reloads never count twice
   lineClosed: false, // no remaining sequence of cards reaches the cup
   difficultyId: 'classic',
   customConfig: null,
@@ -53,7 +54,7 @@ function loadPrefs() {
     state.holeNumber = parseInt(localStorage.getItem('life-of-golf:hole') || '1', 10) || 1;
     state.difficultyId = localStorage.getItem('life-of-golf:diff') || 'classic';
     const done = JSON.parse(localStorage.getItem('life-of-golf:done') || '[]');
-    if (Array.isArray(done)) state.doneKeys = done.filter((k) => typeof k === 'string').slice(-60);
+    if (Array.isArray(done)) state.doneKeys = new Set(done.filter((k) => typeof k === 'string'));
     // 'light' = Ivory (the default), 'dark' = Evergreen.
     const savedTheme = localStorage.getItem('life-of-golf:palette');
     if (savedTheme === 'dark' || savedTheme === 'light') {
@@ -68,7 +69,8 @@ function savePrefs() {
     localStorage.setItem('life-of-golf:solved', String(state.totalSolved));
     localStorage.setItem('life-of-golf:hole', String(state.holeNumber));
     localStorage.setItem('life-of-golf:diff', state.difficultyId);
-    localStorage.setItem('life-of-golf:done', JSON.stringify(state.doneKeys.slice(-60)));
+    // one short hash per hole, never evicted: a hole must not become countable again later
+    localStorage.setItem('life-of-golf:done', JSON.stringify([...state.doneKeys]));
     localStorage.setItem('life-of-golf:palette', state.theme);
   } catch {}
 }
@@ -157,9 +159,15 @@ function activeConfig() {
   return DIFFICULTY_PRESETS[state.difficultyId] || DIFFICULTY_PRESETS.classic;
 }
 
-/** A hole's identity: the same seed on the same course is the same hole, however it was reached. */
+/**
+ * A hole's identity: a hash of what was actually generated (layout, tee, cup and hand), so the same
+ * hole is recognised however it was reached and two different custom courses never share one.
+ */
 function holeKey(level) {
-  return `${level.seed}|${level.difficulty}|${level.width}x${level.height}|${level.par}|${JSON.stringify(level.cards)}`;
+  const layout = level.grid.map((row) => row.map((c) => `${c.terrain}${c.elev}`).join(',')).join(';');
+  const body = `${level.seed}|${layout}|${level.start.x},${level.start.y}|${level.cup.x},${level.cup.y}|${JSON.stringify(level.cards)}`;
+  // two independent 32-bit hashes, so an accidental collision is not a practical concern
+  return `${hashSeed(body).toString(36)}-${hashSeed(`${body}#`).toString(36)}`;
 }
 
 function startHole(seedOverride = null) {
@@ -188,7 +196,7 @@ function startHole(seedOverride = null) {
     savePrefs();
     showToast('Hole left unfinished · streak reset', 2400);
   }
-  state.holeDone = state.doneKeys.includes(key);
+  state.holeDone = state.doneKeys.has(key);
   delete $('card-hand').dataset.handKey; // always deal a fresh hand for a new hole
 
   renderer.loadLevel(state.level, state.ballPos);
@@ -419,7 +427,7 @@ function handleWin() {
   // A hole counts once, however many times it is replayed or undone.
   if (!state.holeDone) {
     state.holeDone = true;
-    state.doneKeys.push(holeKey(state.level));
+    state.doneKeys.add(holeKey(state.level));
     state.streak += 1;
     state.totalSolved += 1;
   }

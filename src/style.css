@@ -815,8 +815,8 @@ button { cursor: pointer; touch-action: manipulation; border: 0; background: non
   .bottom-dock { padding-left: 12px; padding-right: 12px; }
 }
 
-/* ---------- Wide screens ---------- */
-@media (min-width: 900px) {
+/* ---------- Wide screens: the scorecard centres in the header once the menu buttons clear it ---------- */
+@media (min-width: 1100px) {
   .top-bar { position: relative; padding: 22px 30px 0; }
   .scoreboard { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); width: 540px; }
   .btn-lbl { display: none; }
@@ -878,6 +878,10 @@ button { cursor: pointer; touch-action: manipulation; border: 0; background: non
     padding-top: 6px;
   }
   .golf-card.selected { transform: translateY(-4px); }
+  @supports (width: 1cqw) {
+    /* four across the rail's real content width, which shrinks with the safe-area inset on notched phones */
+    .card-hand { --cw: calc((100cqw - 3 * var(--gap)) / 4 - 1px); }
+  }
   .dock-controls { flex-wrap: wrap; gap: 6px; }
   .dock-controls .dock-btn { flex: 1 1 30%; min-height: 36px; padding: 0 6px; font-size: 10.5px; letter-spacing: 0.1em; }
   .stage-toast { top: 6px; }
