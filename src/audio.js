@@ -15,11 +15,34 @@ class SoundEngine {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       this.ctx = new AC();
+      this.buildBus(this.ctx);
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;
+  }
+
+  // Master bus: a soft limiter plus a short feedback echo, so every blip gets a little arcade air.
+  buildBus(ctx) {
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.9;
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -14;
+    limiter.ratio.value = 6;
+    const delay = ctx.createDelay(0.5);
+    delay.delayTime.value = 0.17;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.26;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.2;
+    this.master.connect(limiter);
+    this.master.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(wet);
+    wet.connect(limiter);
+    limiter.connect(ctx.destination);
   }
 
   setMuted(m) {
@@ -44,7 +67,7 @@ class SoundEngine {
     gain.gain.linearRampToValueAtTime(vol, now + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.master);
     osc.start(now);
     osc.stop(now + dur + 0.02);
   }
@@ -69,7 +92,7 @@ class SoundEngine {
 
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.master);
     src.start(now);
   }
 

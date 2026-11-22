@@ -1,16 +1,18 @@
 {
   "name": "Life of Golf",
   "short_name": "Life of Golf",
-  "description": "An infinite isometric 3D golf puzzle card game with on-device Edge AI Caddie.",
+  "description": "An endless neon golf puzzle: play shot cards across floating isometric courses, with an on-device AI caddie.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#dbeeff",
-  "theme_color": "#18864b",
+  "background_color": "#05061a",
+  "theme_color": "#05061a",
   "icons": [
     {
       "src": "./favicon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
-  ]
+  ],
+  "orientation": "any"
 }

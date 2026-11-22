@@ -31,7 +31,7 @@ jobs:
           node-version: '22'
 
       - name: Run unit tests before deploy
-        run: node --test tests/engine.test.mjs
+        run: node --test tests/*.test.mjs
 
       - name: Stage static site
         run: |

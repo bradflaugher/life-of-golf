@@ -13,6 +13,7 @@ import {
 import { GolfRenderer3D } from './renderer3d.js';
 import { CaddieNet } from './caddie.js';
 import { sound } from './audio.js';
+import { icon, hydrateIcons } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,7 +31,7 @@ const state = {
   won: false,
   streak: 0,
   totalSolved: 0,
-  theme: 'light',
+  theme: 'dark',
   caddieEval: null,
   hintMove: null,
 };
@@ -46,10 +47,9 @@ function loadPrefs() {
     state.holeNumber = parseInt(localStorage.getItem('life-of-golf:hole') || '1', 10) || 1;
     state.difficultyId = localStorage.getItem('life-of-golf:diff') || 'classic';
     const savedTheme = localStorage.getItem('life-of-golf:theme');
+    // 'dark' = Midnight Links (the default), 'light' = Sunset Drive.
     if (savedTheme === 'dark' || savedTheme === 'light') {
       state.theme = savedTheme;
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      state.theme = 'dark';
     }
   } catch {}
 }
@@ -64,10 +64,10 @@ function savePrefs() {
   } catch {}
 }
 
-function showToast(msg, ms = 2200) {
+function showToast(msg, ms = 2200, tone = '') {
   const el = $('stage-toast');
   el.textContent = msg;
-  el.classList.add('show');
+  el.className = `stage-toast show${tone ? ` ${tone}` : ''}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
@@ -111,6 +111,29 @@ function cardSvg(card) {
   </svg>`;
 }
 
+function buzz(pattern) {
+  if (sound.muted) return;
+  try {
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  } catch {}
+}
+
+function cardLabelHtml(card) {
+  // U+FE0E keeps the arrows as text glyphs instead of emoji on phones.
+  return formatCardLabel(card).replace(/([↩↑])/, '<small>$1\uFE0E</small>');
+}
+
+function setText(id, text, bump = false) {
+  const el = $(id);
+  if (el.textContent === text) return;
+  el.textContent = text;
+  if (bump) {
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  }
+}
+
 function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -136,6 +159,7 @@ function startHole(seedOverride = null) {
   const seed = seedOverride || (state.dailyMode ? `daily-${todayISO()}` : `hole-${state.holeNumber}-${cfg.id || 'custom'}`);
   state.level = generateLevel(seed, cfg);
   state.ballPos = { ...state.level.start };
+  delete $('card-hand').dataset.handKey; // always deal a fresh hand for a new hole
 
   renderer.loadLevel(state.level, state.ballPos);
   evaluateCaddie();
@@ -151,56 +175,91 @@ function startHole(seedOverride = null) {
 function renderHUD() {
   const lvl = state.level;
   if (!lvl) return;
-  $('hud-hole').textContent = state.dailyMode ? `Daily ${todayISO()}` : `Hole #${state.holeNumber}`;
-  $('hud-par').textContent = `Par ${lvl.par}`;
+  if (state.dailyMode) {
+    const seedDate = /^daily-\d{4}-(\d{2})-(\d{2})$/.exec(String(lvl.seed));
+    const d = seedDate ? `${seedDate[1]}·${seedDate[2]}` : todayISO().slice(5).replace('-', '·');
+    $('hud-hole-k').textContent = 'Daily';
+    setText('hud-hole', d);
+  } else {
+    $('hud-hole-k').textContent = 'Hole';
+    setText('hud-hole', String(state.holeNumber).padStart(2, '0'));
+  }
+  $('hud-hole').classList.toggle('date', state.dailyMode);
+  setText('hud-par', String(lvl.par));
   const strokes = state.history.length;
-  $('hud-strokes').textContent = `${strokes} ${strokes === 1 ? 'stroke' : 'strokes'}`;
-  $('hud-streak').textContent = `🔥 ${state.streak}`;
+  setText('hud-strokes', String(strokes), true);
+  $('hud-strokes').classList.toggle('over', strokes > lvl.par);
+  setText('hud-streak', String(state.streak), true);
+  $('hud-streak').classList.toggle('zero', state.streak === 0);
   $('lbl-diff').textContent = state.difficultyId === 'custom' ? 'Custom' : (DIFFICULTY_PRESETS[state.difficultyId]?.label || 'Classic');
   $('btn-undo').disabled = state.history.length === 0 || state.animating;
 }
 
 function renderHand() {
   const container = $('card-hand');
-  container.innerHTML = '';
   const lvl = state.level;
-  if (!lvl) return;
+  if (!lvl) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // Build the hand once per hole (with a deal-in), then patch classes so CSS transitions can run.
+  const handKey = `${lvl.seed}|${JSON.stringify(lvl.cards)}`;
+  if (container.dataset.handKey !== handKey) {
+    container.dataset.handKey = handKey;
+    container.innerHTML = '';
+    container.style.setProperty('--n', String(lvl.cards.length));
+    lvl.cards.forEach((card, idx) => {
+      const btn = document.createElement('button');
+      btn.className = `golf-card kind-${card.kind} deal`;
+      btn.style.setProperty('--i', String(idx));
+      btn.setAttribute('role', 'option');
+      btn.dataset.cardIndex = String(idx);
+      btn.setAttribute('aria-label', `${formatCardName(card)} ${formatCardLabel(card)}`);
+      btn.innerHTML = `
+        <span class="card-kind">${formatCardName(card)}</span>
+        ${cardSvg(card)}
+        <span class="card-val">${cardLabelHtml(card)}</span>
+      `;
+      btn.addEventListener('click', () => {
+        if (state.animating || state.won || (state.usedMask & (1 << idx))) return;
+        selectCard(idx);
+      });
+      btn.addEventListener('animationend', () => btn.classList.remove('deal'), { once: true });
+      container.appendChild(btn);
+    });
+  }
 
   const aiTopCard = state.caddieEval?.best?.cardIndex ?? -1;
+  const caddieOpen = !$('drawer-caddie').classList.contains('hidden');
 
   lvl.cards.forEach((card, idx) => {
+    const btn = container.children[idx];
     const used = Boolean(state.usedMask & (1 << idx));
     const selected = state.selectedCard === idx && !used;
-    const isAiPick = !used && state.hintMove && state.hintMove.cardIndex === idx;
+    const isAiPick = Boolean(!used && state.hintMove && state.hintMove.cardIndex === idx);
 
-    const btn = document.createElement('button');
-    btn.className = `golf-card${selected ? ' selected' : ''}${used ? ' used' : ''}${isAiPick ? ' ai-pick' : ''}`;
+    btn.classList.toggle('selected', selected);
+    btn.classList.toggle('used', used);
+    btn.classList.toggle('ai-pick', isAiPick);
     btn.disabled = used || state.animating || state.won;
-    btn.setAttribute('role', 'option');
     btn.setAttribute('aria-selected', String(selected));
-    btn.dataset.cardIndex = String(idx);
 
-    const badge = isAiPick
-      ? `<span class="card-badge-ai">${state.hintMove.source}</span>`
-      : (!used && idx === aiTopCard && !$('drawer-caddie').classList.contains('hidden'))
-        ? `<span class="card-badge-ai">AI</span>`
-        : '';
-
-    btn.innerHTML = `
-      ${badge}
-      <span class="card-kind">${formatCardName(card)}</span>
-      ${cardSvg(card)}
-      <span class="card-val">${formatCardLabel(card)}</span>
-    `;
-
-    btn.addEventListener('click', () => {
-      if (state.animating || state.won || used) return;
-      selectCard(idx);
-    });
-    container.appendChild(btn);
+    const badgeText = isAiPick ? state.hintMove.source : (!used && idx === aiTopCard && caddieOpen) ? 'AI' : '';
+    let badge = btn.querySelector('.card-badge-ai');
+    if (badgeText) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'card-badge-ai';
+        btn.appendChild(badge);
+      }
+      badge.textContent = badgeText;
+    } else if (badge) {
+      badge.remove();
+    }
   });
 
-  // Show mobile D-pad when a card is selected
+  // Show the diagonal pad when a card is selected
   $('mobile-dir-pad').classList.toggle('hidden', state.selectedCard === null || state.won);
 }
 
@@ -213,7 +272,7 @@ function selectCard(idx, silent = false) {
   renderer.showDirections(card, recDir);
   renderHand();
   if (!silent) {
-    showToast(`Tap an arrow or swipe to ${formatCardName(card)} ${formatCardLabel(card)}`, 1800);
+    showToast(`${formatCardName(card)} ${formatCardLabel(card)} · swipe or tap an arrow`, 1800);
   }
 }
 
@@ -242,8 +301,10 @@ async function playDirection(dirId) {
 
   if (card.kind === CARD_KINDS.ROLL) sound.putt();
   else sound.chip();
+  buzz(12);
 
   await renderer.animateShot(sim, (ev) => {
+    if (ev === 'bounce' || ev === 'water' || ev === 'sink') buzz(ev === 'bounce' ? 18 : [30, 40, 60]);
     if (ev === 'bounce') sound.bounce();
     else if (ev === 'sand') sound.sand();
     else if (ev === 'water') sound.water();
@@ -257,11 +318,11 @@ async function playDirection(dirId) {
   state.animating = false;
 
   if (sim.hazard === 'water') {
-    showToast('💦 Water hazard! Ball reset — tap Undo or keep playing.', 2400);
+    showToast('Water hazard · ball returned', 2400, 'warn');
   } else if (sim.hazard === 'void') {
-    showToast('⛰️ Off the cliff! Ball reset — tap Undo or try a gentler shot.', 2400);
+    showToast('Off the edge · ball returned', 2400, 'warn');
   } else if (sim.stuckInSand) {
-    showToast('🏖️ Stuck in sand! Use a Chip or Lob card to escape.', 2400);
+    showToast('Bunkered · only a chip or lob gets out', 2600, 'warn');
   }
 
   if (sim.won) {
@@ -278,7 +339,7 @@ async function playDirection(dirId) {
     selectCard(nextCard, true);
   } else {
     renderHand();
-    showToast('Out of cards! Tap Undo (Z) or Reset (R) to try another line.', 3200);
+    showToast('Out of cards · undo or reset to try another line', 3200, 'warn');
   }
 }
 
@@ -293,34 +354,42 @@ function handleWin() {
   const strokes = state.history.length;
   const par = state.level.par;
   const diff = strokes - par;
-  let title = 'Par!';
-  let emoji = '⛳';
+  let title = 'Par';
+  let result = 'par';
   if (strokes === 1) {
-    title = 'Hole in One!';
-    emoji = '🏆';
+    title = 'Hole in One';
+    result = 'ace';
   } else if (diff <= -2) {
-    title = 'Eagle!';
-    emoji = '🦅';
+    title = 'Eagle';
+    result = 'eagle';
   } else if (diff === -1) {
-    title = 'Birdie!';
-    emoji = '🐦';
-  } else if (diff === 0) {
-    title = 'Par!';
-    emoji = '⛳';
-  } else {
-    title = 'Sunk!';
-    emoji = '✨';
+    title = 'Birdie';
+    result = 'birdie';
+  } else if (diff > 0) {
+    title = 'Sunk';
+    result = 'over';
   }
 
-  $('win-emoji').textContent = emoji;
+  document.querySelector('#modal-win .modal-card').dataset.result = result;
+  $('win-emoji').innerHTML = `<span>${strokes === 1 ? 'ACE' : diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `−${-diff}`}</span>`;
   $('win-title').textContent = title;
-  $('win-detail').textContent = `Sunk in ${strokes} ${strokes === 1 ? 'stroke' : 'strokes'} (Optimal Par ${par})`;
-  $('win-badges').innerHTML = `
-    <span class="pill pill-accent">🔥 Streak ${state.streak}</span>
-    <span class="pill">Seed: ${state.level.seed}</span>
-    <span class="pill">${state.level.width}×${state.level.height}</span>
-  `;
-  $('modal-win').classList.remove('hidden');
+  $('win-detail').textContent = `${strokes} ${strokes === 1 ? 'stroke' : 'strokes'} · optimal par ${par}`;
+  const badges = $('win-badges');
+  badges.innerHTML = '';
+  [
+    [`Streak ${state.streak}`, 'pill pill-accent'],
+    [`${state.level.width}×${state.level.height}`, 'pill'],
+    [`Seed ${state.level.seed}`, 'pill'],
+  ].forEach(([text, cls]) => {
+    const el = document.createElement('span');
+    el.className = cls;
+    el.textContent = text;
+    badges.appendChild(el);
+  });
+  // Let the ball drop and the confetti fly before the card slides in.
+  setTimeout(() => {
+    if (state.won) $('modal-win').classList.remove('hidden');
+  }, 520);
 }
 
 function undoShot() {
@@ -420,9 +489,9 @@ function evaluateCaddie() {
 function applyTheme(t) {
   state.theme = t;
   document.documentElement.setAttribute('data-theme', t);
-  $('btn-theme').textContent = t === 'dark' ? '☀️' : '🌙';
+  $('btn-theme').innerHTML = icon(t === 'dark' ? 'moon' : 'sun');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', t === 'dark' ? '#0f172a' : '#dbeeff');
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#05061a' : '#1c0b3f');
   if (renderer) renderer.applyTheme(t);
   savePrefs();
 }
@@ -443,7 +512,7 @@ function buildPresetGrid() {
       buildPresetGrid();
       $('drawer-difficulty').classList.add('hidden');
       startHole();
-      showToast(`Switched to ${p.label} difficulty!`);
+      showToast(`${p.label} course`);
     });
     grid.appendChild(btn);
   });
@@ -462,13 +531,14 @@ function syncCustomControlsFromPreset(p) {
 }
 
 function bindUI() {
-  window.addEventListener('resize', () => renderer && renderer.resize());
+  window.addEventListener('resize', updateInsets);
+  window.addEventListener('orientationchange', updateInsets);
   if (typeof ResizeObserver !== 'undefined') {
-    const stageEl = document.querySelector('.stage-wrap');
-    if (stageEl) {
-      new ResizeObserver(() => renderer && renderer.resize()).observe(stageEl);
-    }
+    const ro = new ResizeObserver(updateInsets);
+    ro.observe($('top-bar'));
+    ro.observe($('bottom-dock'));
   }
+  $('scrim').addEventListener('click', closeDrawers);
 
   $('btn-undo').addEventListener('click', undoShot);
   $('btn-reset').addEventListener('click', resetHole);
@@ -483,7 +553,7 @@ function bindUI() {
     state.dailyMode = true;
     state.difficultyId = 'classic';
     startHole(`daily-${todayISO()}`);
-    showToast(`📅 Daily Course for ${todayISO()}`);
+    showToast(`Daily course · ${todayISO()}`, 2200, 'gold');
   });
 
   $('btn-difficulty').addEventListener('click', () => {
@@ -505,13 +575,18 @@ function bindUI() {
 
   $('btn-theme').addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+    showToast(state.theme === 'dark' ? 'Midnight Links' : 'Sunset Drive', 1400);
   });
 
+  const syncMute = () => {
+    $('btn-mute').innerHTML = icon(sound.muted ? 'mute' : 'sound');
+  };
   $('btn-mute').addEventListener('click', () => {
     sound.setMuted(!sound.muted);
-    $('btn-mute').textContent = sound.muted ? '🔇' : '🔊';
+    syncMute();
+    if (!sound.muted) sound.cardSelect();
   });
-  $('btn-mute').textContent = sound.muted ? '🔇' : '🔊';
+  syncMute();
 
   document.querySelectorAll('[data-close]').forEach((btn) => {
     btn.addEventListener('click', () => $(btn.dataset.close).classList.add('hidden'));
@@ -548,7 +623,7 @@ function bindUI() {
     buildPresetGrid();
     $('drawer-difficulty').classList.add('hidden');
     startHole(customSeed || `custom-${Date.now().toString(36)}`);
-    showToast(`Playing Custom ${size}×${size} course!`);
+    showToast(`Custom ${size}×${size} course`);
   });
 
   // Caddie AI buttons
@@ -572,29 +647,22 @@ function bindUI() {
     });
     const sol = solveLevel({ ...state.level, start: { ...state.ballPos }, cards: remCards }, 3500);
     if (!sol || sol.length === 0) {
-      showToast('No solution from here — try Undo or Reset!', 2500);
+      showToast('No line from here · undo or reset', 2500, 'warn');
       return;
     }
     const move = { cardIndex: origIdx[sol[0].cardIndex], dir: sol[0].dir, source: 'BFS' };
     state.hintMove = move;
     $('drawer-caddie').classList.add('hidden');
     selectCard(move.cardIndex);
-    showToast(`💡 Optimal move: ${formatCardName(state.level.cards[move.cardIndex])} ${formatCardLabel(state.level.cards[move.cardIndex])} → ${DIRS[move.dir].name}`, 2800);
+    showToast(`Optimal: ${formatCardName(state.level.cards[move.cardIndex])} ${formatCardLabel(state.level.cards[move.cardIndex])} along the amber arrow`, 2800, 'gold');
   });
 
-  // Mobile D-pad buttons (map screen up/right/down/left to current camera orientation!)
+  // Diagonal pad: each button's screen vector maps onto the nearest isometric axis
   document.querySelectorAll('#mobile-dir-pad .dir-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const screenDir = parseInt(btn.dataset.dir, 10);
-      const vecs = [
-        [0, -1], // up
-        [1, 0],  // right
-        [0, 1],  // down
-        [-1, 0], // left
-      ];
-      const [dx, dy] = vecs[screenDir];
-      const worldDir = renderer.screenVectorToDir(dx, dy);
-      playDirection(worldDir);
+      const dx = parseFloat(btn.dataset.sx);
+      const dy = parseFloat(btn.dataset.sy);
+      playDirection(renderer.screenVectorToDir(dx, dy));
     });
   });
 
@@ -615,7 +683,7 @@ function bindUI() {
     const text = `⛳ Life of Golf · ${state.dailyMode ? `Daily ${todayISO()}` : `Hole #${state.holeNumber}`}\nSunk in ${strokes} (Par ${par}) · 🔥 Streak ${state.streak}\n${url}`;
     try {
       await navigator.clipboard.writeText(text);
-      showToast('📋 Scorecard copied to clipboard!');
+      showToast('Scorecard copied', 2000, 'gold');
     } catch {
       showToast(text, 3500);
     }
@@ -629,16 +697,16 @@ function bindUI() {
       if (state.level && idx < state.level.cards.length) selectCard(idx);
     } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
       e.preventDefault();
-      playDirection(renderer.screenVectorToDir(0, -1));
+      playDirection(renderer.screenVectorToDir(1, -1));
     } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
       e.preventDefault();
-      playDirection(renderer.screenVectorToDir(1, 0));
+      playDirection(renderer.screenVectorToDir(1, 1));
     } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
       e.preventDefault();
-      playDirection(renderer.screenVectorToDir(0, 1));
+      playDirection(renderer.screenVectorToDir(-1, 1));
     } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
       e.preventDefault();
-      playDirection(renderer.screenVectorToDir(-1, 0));
+      playDirection(renderer.screenVectorToDir(-1, -1));
     } else if (e.key === 'z' || e.key === 'Z') {
       undoShot();
     } else if (e.key === 'r' || e.key === 'R') {
@@ -657,13 +725,32 @@ function bindUI() {
     } else if (e.key === 'm' || e.key === 'M') {
       $('btn-mute').click();
     } else if (e.key === 'Escape') {
-      $('drawer-difficulty').classList.add('hidden');
-      $('drawer-caddie').classList.add('hidden');
+      closeDrawers();
     }
   });
 }
 
+function closeDrawers() {
+  $('drawer-difficulty').classList.add('hidden');
+  $('drawer-caddie').classList.add('hidden');
+  renderHand();
+}
+
+/** Tell the renderer how much of the screen the HUD covers, so the course is framed in what is left. */
+function updateInsets() {
+  if (!renderer) return;
+  const top = $('top-bar').getBoundingClientRect().bottom;
+  const dock = $('bottom-dock').getBoundingClientRect();
+  const sideRail = window.matchMedia('(orientation: landscape) and (max-height: 520px)').matches;
+  renderer.setInsets(
+    sideRail
+      ? { top, right: window.innerWidth - dock.left }
+      : { top, bottom: window.innerHeight - dock.top }
+  );
+}
+
 async function init() {
+  hydrateIcons();
   loadPrefs();
   applyTheme(state.theme);
 
@@ -681,6 +768,7 @@ async function init() {
 
   renderer = new GolfRenderer3D($('game-canvas'), {
     theme: state.theme,
+    quality: params.get('fx') || 'auto',
     onDirectionPick: (dirId) => playDirection(dirId),
     onSwipeDirection: (dirId) => playDirection(dirId),
   });
@@ -696,6 +784,19 @@ async function init() {
   }
 
   startHole(dailyParam ? `daily-${dailyParam}` : seedParam || null);
+  updateInsets();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateInsets);
+
+  // Lift the title card once the course is on screen.
+  setTimeout(() => {
+    $('splash').classList.add('done');
+    let seen = true;
+    try {
+      seen = localStorage.getItem('life-of-golf:seen-intro') === '1';
+      localStorage.setItem('life-of-golf:seen-intro', '1');
+    } catch {}
+    if (!seen) showToast('Pick a card · then swipe or tap an arrow', 4200);
+  }, 650);
 
   // Expose debug handle for automated playtesting
   window.__GAME__ = { state, renderer, caddie, playDirection, selectCard, undoShot, resetHole, startHole };
