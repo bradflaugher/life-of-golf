@@ -1,4 +1,4 @@
-// Synthesized Web Audio Soundscape for Life of Golf — zero external audio files.
+// Synthesized Web Audio soundscape for Life of Golf: soft club sounds and distant birdsong, no audio files.
 
 class SoundEngine {
   constructor() {
@@ -16,6 +16,7 @@ class SoundEngine {
       if (!AC) return null;
       this.ctx = new AC();
       this.buildBus(this.ctx);
+      this.scheduleBirdsong();
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
@@ -35,7 +36,7 @@ class SoundEngine {
     const feedback = ctx.createGain();
     feedback.gain.value = 0.26;
     const wet = ctx.createGain();
-    wet.gain.value = 0.2;
+    wet.gain.value = 0.1;
     this.master.connect(limiter);
     this.master.connect(delay);
     delay.connect(feedback);
@@ -43,6 +44,23 @@ class SoundEngine {
     delay.connect(wet);
     wet.connect(limiter);
     limiter.connect(ctx.destination);
+  }
+
+  // A songbird somewhere off in the trees: a few quick sine sweeps, every so often.
+  scheduleBirdsong() {
+    const wait = 5000 + Math.random() * 9000;
+    setTimeout(() => {
+      if (!this.muted && this.ctx && this.ctx.state === 'running' && !document.hidden) {
+        const base = 2300 + Math.random() * 1500;
+        const notes = 2 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < notes; i++) {
+          const f = base * (0.9 + Math.random() * 0.3);
+          const up = Math.random() < 0.6;
+          this.tone(f, 0.07 + Math.random() * 0.05, 'sine', 0.018 + Math.random() * 0.012, up ? f * 1.25 : f * 0.8, i * 0.11);
+        }
+      }
+      this.scheduleBirdsong();
+    }, wait);
   }
 
   setMuted(m) {
@@ -111,7 +129,7 @@ class SoundEngine {
   }
 
   bounce() {
-    this.tone(390, 0.08, 'square', 0.07, 190);
+    this.tone(390, 0.08, 'triangle', 0.1, 190);
   }
 
   sand() {

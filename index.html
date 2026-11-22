@@ -1,21 +1,21 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#05061a">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#3b1710">
+  <meta name="color-scheme" content="light">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Life of Golf">
-  <meta name="description" content="Life of Golf — an endless neon golf puzzle. Play shot cards across floating isometric courses, with an on-device AI caddie.">
-  <title>Life of Golf — Endless Neon Golf Puzzles</title>
+  <meta name="description" content="Life of Golf — an endless golf puzzle on hand-painted meadow courses. Play shot cards to find the line to the cup, with an on-device AI caddie.">
+  <title>Life of Golf — An Endless Round</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="apple-touch-icon" href="./favicon.svg">
   <link rel="manifest" href="./site.webmanifest">
-  <link rel="preload" href="./src/fonts/orbitron-latin-900-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="./src/fonts/chakra-petch-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./src/fonts/playfair-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./src/fonts/eb-garamond-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./src/style.css">
   <script type="importmap">
   {
@@ -43,7 +43,7 @@
           <button id="btn-daily" class="icon-btn" title="Daily Course" aria-label="Daily course"><span data-icon="daily"></span><span class="btn-lbl">Daily</span></button>
           <button id="btn-difficulty" class="icon-btn" title="Course &amp; Difficulty" aria-label="Course and difficulty"><span data-icon="course"></span><span class="btn-lbl">Course</span></button>
           <button id="btn-caddie" class="icon-btn icon-btn-ai" title="CaddieNet Edge AI (H)" aria-label="AI caddie"><span data-icon="caddie"></span><span class="btn-lbl">Caddie</span></button>
-          <button id="btn-theme" class="icon-btn" title="Switch between Midnight and Sunset" aria-label="Switch theme"></button>
+          <button id="btn-theme" class="icon-btn" title="Switch between Morning Round and Golden Hour" aria-label="Switch theme"></button>
           <button id="btn-mute" class="icon-btn" title="Toggle Sound (M)" aria-label="Toggle sound"></button>
         </nav>
       </div>
@@ -92,7 +92,7 @@
       <div class="dock-controls">
         <button id="btn-undo" class="dock-btn" title="Undo last shot (Z)"><span data-icon="undo"></span>Undo</button>
         <button id="btn-reset" class="dock-btn" title="Reset hole (R)"><span data-icon="reset"></span>Reset</button>
-        <button id="btn-new-hole" class="dock-btn dock-btn-primary" title="Next hole (N)">Next Hole<span data-icon="next"></span></button>
+        <button id="btn-new-hole" class="dock-btn" title="Skip to the next hole (N)">Skip<span data-icon="next"></span></button>
       </div>
       <div id="card-hand" class="card-hand" role="listbox" aria-label="Shot cards"></div>
     </footer>
@@ -119,14 +119,14 @@
             <input id="opt-elev" type="range" min="1" max="3" value="2">
           </div>
           <div class="slider-row">
-            <label for="opt-cards">Hand Size <strong id="val-cards">5</strong></label>
-            <input id="opt-cards" type="range" min="3" max="7" value="5">
+            <label for="opt-cards">Longest Par <strong id="val-cards">5</strong></label>
+            <input id="opt-cards" type="range" min="3" max="6" value="5">
           </div>
 
           <div class="toggle-grid" id="mechanic-toggles">
             <label class="chip-toggle t-sand"><input type="checkbox" data-mech="sand" checked><i></i>Sand</label>
             <label class="chip-toggle t-water"><input type="checkbox" data-mech="water" checked><i></i>Water</label>
-            <label class="chip-toggle t-wall"><input type="checkbox" data-mech="walls" checked><i></i>Walls</label>
+            <label class="chip-toggle t-wall"><input type="checkbox" data-mech="walls" checked><i></i>Hedges</label>
             <label class="chip-toggle t-ice"><input type="checkbox" data-mech="ice" checked><i></i>Ice</label>
             <label class="chip-toggle t-mud"><input type="checkbox" data-mech="mud" checked><i></i>Mud</label>
             <label class="chip-toggle t-ramp"><input type="checkbox" data-mech="ramps" checked><i></i>Ramps</label>
@@ -145,13 +145,13 @@
           <h3>Terrain Guide</h3>
           <ul class="legend-list">
             <li class="t-sand"><i></i><span><strong>Sand</strong> stops a rolling ball. Only a Chip or Lob gets out.</span></li>
-            <li class="t-ice"><i></i><span><strong>Ice</strong> is frictionless: you slide until something stops you.</span></li>
+            <li class="t-ice"><i></i><span><strong>Ice</strong> is frictionless: the ball slides until something stops it.</span></li>
             <li class="t-mud"><i></i><span><strong>Mud</strong> is sticky rough that drains extra roll.</span></li>
             <li class="t-ramp"><i></i><span><strong>Ramps</strong> climb one tier uphill and add roll downhill.</span></li>
-            <li class="t-wall"><i></i><span><strong>Walls</strong> bounce a rolling ball back. Bank shots welcome.</span></li>
-            <li class="t-boost"><i></i><span><strong>Boost</strong> strips push the ball one tile along the chevrons.</span></li>
-            <li class="t-spring"><i></i><span><strong>Springs</strong> launch the ball two tiles over anything.</span></li>
-            <li class="t-portal"><i></i><span><strong>Portals</strong> warp between twin rings and keep your momentum.</span></li>
+            <li class="t-wall"><i></i><span><strong>Hedges</strong> bounce a rolling ball back. Bank shots welcome.</span></li>
+            <li class="t-boost"><i></i><span><strong>Boardwalks</strong> carry the ball one tile along the chevrons.</span></li>
+            <li class="t-spring"><i></i><span><strong>Toadstools</strong> spring the ball two tiles over anything.</span></li>
+            <li class="t-portal"><i></i><span><strong>Stone rings</strong> carry the ball to their twin and keep its momentum.</span></li>
           </ul>
         </div>
       </div>
@@ -197,7 +197,7 @@
     <!-- Hole Complete Modal -->
     <div id="modal-win" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="win-title">
       <div class="modal-card">
-        <div class="win-emoji" id="win-emoji">E</div>
+        <div class="win-crest"><span data-laurel></span><div class="win-emoji" id="win-emoji">E</div></div>
         <h2 id="win-title">Birdie</h2>
         <p id="win-detail" class="win-detail">Sunk in 3 strokes (Par 3)</p>
         <div id="win-badges" class="win-badges"></div>
@@ -212,9 +212,9 @@
     <!-- Title card shown while the course builds -->
     <div id="splash" class="splash" aria-hidden="true">
       <div class="splash-logo">
-        <span class="splash-pre">Life of</span>
-        <span class="splash-main">Golf</span>
-        <span class="splash-sub">An endless ascent</span>
+        <span class="splash-crest" data-laurel="flag"></span>
+        <span class="splash-main">Life <i>of</i> Golf</span>
+        <span class="splash-sub">An endless round</span>
       </div>
     </div>
   </div>

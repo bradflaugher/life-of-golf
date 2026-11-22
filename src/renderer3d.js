@@ -1,10 +1,13 @@
-// Life of Golf — Three.js isometric renderer: a neon course floating over a synthwave horizon.
+// Life of Golf — Three.js isometric renderer: a hand-painted meadow course floating above a sunlit valley.
+// Textures are built from dabs of broken colour and the frame is finished with an oil-paint filter.
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {
   DIRS,
   TERRAIN,
@@ -14,7 +17,6 @@ import {
 } from './engine.js';
 
 const TILE_SIZE = 1.0;
-const TILE_GAP = 0.03;
 const ELEV_STEP = 0.42;
 const BASE_THICKNESS = 0.65;
 const CAP_H = 0.1;
@@ -24,86 +26,97 @@ const CAM_Y = 12.2;
 const CAM_ELEV_SIN = CAM_Y / Math.hypot(CAM_RADIUS, CAM_Y);
 const CAM_ELEV_COS = CAM_RADIUS / Math.hypot(CAM_RADIUS, CAM_Y);
 
-const NEON = {
-  cyan: 0x29e6ff,
-  magenta: 0xff3fc8,
-  amber: 0xffc23d,
-  green: 0x3dff9e,
-  violet: 0x9d6bff,
-  red: 0xff4a5f,
-  idle: 0x6a78a8,
+// Aim-guide paint: chalk white for a clean shot, gold for the cup or a hint, coral for trouble.
+const PAINT = {
+  good: 0xfffdf2,
+  gold: 0xf5c542,
+  bad: 0xe5533d,
+  idle: 0x8fa08c,
+  outline: 0x1d3b2a,
 };
 
 const THEMES = {
-  // "Midnight Links": deep navy, cyan and magenta tubes.
-  dark: {
-    skyTop: '#03041a',
-    skyMid: '#0d1140',
-    skyHaze: '#5a1a8c',
-    sunA: '#2fc4ff',
-    sunB: '#ff3fc8',
-    floor: '#05061c',
-    grid: '#ff3fc8',
-    hemiSky: 0x9fb6ff,
-    hemiGround: 0x2a1450,
-    hemiInt: 1.25,
-    sunColor: 0xdfe8ff,
-    sunInt: 1.9,
-    rimColor: 0xff4fd0,
-    rimInt: 0.9,
-    turfA: '#12865f',
-    turfB: '#0f7554',
-    turfLine: '#5dffc0',
-    ramp: '#1aa373',
-    cliff: '#171c52',
-    cliffLine: '#5a6dff',
-    rock: 0x151a4a,
-    wall: '#141a4a',
-    wallLine: '#7f95ff',
-    sand: '#e2ac45',
-    sandDot: '#b47a22',
-    water: '#0a3f8f',
-    waterLine: '#39e8ff',
-    ice: '#b9ecff',
-    mud: '#3a2247',
-    mudDot: '#27152f',
-    conveyor: '#161a45',
-    bloom: 0.5,
-  },
-  // "Sunset Drive": plum sky, molten sun, warm tubes.
+  // "Morning Round": clear blue sky, sun on the meadow.
   light: {
-    skyTop: '#1c0b3f',
-    skyMid: '#7a2380',
-    skyHaze: '#ff7a59',
-    sunA: '#ffe873',
-    sunB: '#ff3f8e',
-    floor: '#1a0933',
-    grid: '#ff9a4a',
-    hemiSky: 0xffd9c2,
-    hemiGround: 0x4a1d5e,
-    hemiInt: 1.45,
-    sunColor: 0xfff0d6,
-    sunInt: 2.2,
-    rimColor: 0xff8a4a,
-    rimInt: 0.9,
-    turfA: '#1da877',
-    turfB: '#19966a',
-    turfLine: '#b4ffd9',
-    ramp: '#27c08a',
-    cliff: '#3c1c63',
-    cliffLine: '#ff7ad0',
-    rock: 0x221040,
-    wall: '#351a5c',
-    wallLine: '#ffb0e6',
-    sand: '#f2be55',
-    sandDot: '#c98a2c',
-    water: '#1556b0',
-    waterLine: '#7df2ff',
-    ice: '#cdf3ff',
-    mud: '#4a2848',
-    mudDot: '#331a33',
-    conveyor: '#2a1650',
-    bloom: 0.42,
+    skyTop: '#4f9fe6',
+    skyMid: '#9fd2f5',
+    skyHaze: '#fdf3d3',
+    sunGlow: '#fff3c4',
+    cloud: '#ffffff',
+    cloudShade: '#d9e9f7',
+    hillFar: '#8fb4dc',
+    hillMid: '#6fb090',
+    hillNear: '#74b56f',
+    valley: '#9fd07a',
+    mist: '#eef5df',
+    hemiSky: 0xd8ecff,
+    hemiGround: 0xa9a4dc,
+    hemiInt: 1.5,
+    sunColor: 0xfff0cf,
+    sunInt: 2.5,
+    rimColor: 0xbfe0ff,
+    rimInt: 0.5,
+    turfA: '#8fd65e',
+    turfB: '#6fb84c',
+    turfDark: '#5fa640',
+    ramp: '#93d968',
+    soil: '#c79a66',
+    soilDark: '#a67c4f',
+    rock: 0x9c8468,
+    hedge: '#3f8f45',
+    hedgeDark: '#2f7438',
+    sand: '#f5e4ae',
+    sandLine: '#dcc586',
+    water: '#58bfe8',
+    waterDeep: '#3a9fd6',
+    ice: '#dff5fd',
+    mud: '#8a6645',
+    mudDark: '#6d4e33',
+    plank: '#b9814e',
+    plankDark: '#93613a',
+    cloud3d: 0xffffff,
+    bloom: 0.2,
+  },
+  // "Golden Hour": low amber sun, long warm light.
+  dark: {
+    skyTop: '#5d7fc4',
+    skyMid: '#f2b98f',
+    skyHaze: '#ffe2a8',
+    sunGlow: '#ffd58a',
+    cloud: '#fff1dc',
+    cloudShade: '#f0b9a0',
+    hillFar: '#c2a3b8',
+    hillMid: '#a98f8a',
+    hillNear: '#8d9a5c',
+    valley: '#b9b866',
+    mist: '#f6e3b8',
+    hemiSky: 0xffe2c2,
+    hemiGround: 0xb894c4,
+    hemiInt: 1.35,
+    sunColor: 0xffd49a,
+    sunInt: 2.7,
+    rimColor: 0xffb48a,
+    rimInt: 0.55,
+    turfA: '#9ccb54',
+    turfB: '#7fb044',
+    turfDark: '#6a9a38',
+    ramp: '#a2d05c',
+    soil: '#c8925c',
+    soilDark: '#a57246',
+    rock: 0x9a7c60,
+    hedge: '#4a8a3e',
+    hedgeDark: '#386e32',
+    sand: '#f7dfa0',
+    sandLine: '#deb974',
+    water: '#6cc0de',
+    waterDeep: '#4a9fca',
+    ice: '#e6f3f6',
+    mud: '#8a6040',
+    mudDark: '#6c482e',
+    plank: '#b87a48',
+    plankDark: '#925c36',
+    cloud3d: 0xfff0dc,
+    bloom: 0.26,
   },
 };
 
@@ -112,12 +125,12 @@ function hash2(x, y) {
   return s - Math.floor(s);
 }
 
-function makeCanvasTex(size, drawFn, { srgb = true, repeat = false } = {}) {
+function makeCanvasTex(size, drawFn, { srgb = true, repeat = false, height = size } = {}) {
   const c = document.createElement('canvas');
   c.width = size;
-  c.height = size;
+  c.height = height;
   const ctx = c.getContext('2d');
-  drawFn(ctx, size);
+  drawFn(ctx, size, height);
   const tex = new THREE.CanvasTexture(c);
   if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
   if (repeat) {
@@ -128,26 +141,70 @@ function makeCanvasTex(size, drawFn, { srgb = true, repeat = false } = {}) {
   return tex;
 }
 
-// A tile-top material: `paint` draws the colour map, `glow` (optional) draws what should emit light.
-function tileMaterial({ paint, glow, glowInt = 1, roughness = 0.8, metalness = 0, extra = {} }) {
-  const map = makeCanvasTex(128, paint, { repeat: true });
-  const opts = { map, roughness, metalness, ...extra };
-  if (glow) {
-    opts.emissiveMap = makeCanvasTex(128, (ctx, s) => {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, s, s);
-      glow(ctx, s);
-    }, { repeat: true });
-    opts.emissive = new THREE.Color(0xffffff);
-    opts.emissiveIntensity = glowInt;
-  }
-  return new THREE.MeshStandardMaterial(opts);
+// A soft six-step ramp: light falls off in a few brushy bands instead of one hard cel edge.
+function makeToonRamp() {
+  const steps = [118, 150, 186, 218, 242, 255];
+  const data = new Uint8Array(steps.length * 4);
+  steps.forEach((v, i) => data.set([v, v, v, 255], i * 4));
+  const tex = new THREE.DataTexture(data, steps.length, 1, THREE.RGBAFormat);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
 }
 
-function strokeBorder(ctx, s, color, width = 4, inset = 3) {
+// Things the player has to read at a glance (ball, pin, aim guides) are kept out of the paint filter.
+// They write alpha 0.5 with blending off: the colour lands untouched and the filter reads alpha as a mask.
+function crisp(mat) {
+  mat.transparent = true;
+  mat.opacity = 0.5;
+  mat.blending = THREE.NoBlending;
+  mat.depthWrite = true;
+  return mat;
+}
+
+// A painted material: `paint` draws the colour map.
+function paintedMaterial(ramp, paint, { size = 128, height = size, repeat = true, extra = {} } = {}) {
+  const map = makeCanvasTex(size, paint, { repeat, height });
+  return new THREE.MeshToonMaterial({ map, gradientMap: ramp, ...extra });
+}
+
+// Broken colour: overlapping dabs from a small palette, the way an impressionist lays in a field.
+function dabs(ctx, w, h, count, palette, seed, { min = 5, max = 12, alpha = 0.4, stretch = 1.6 } = {}) {
+  for (let i = 0; i < count; i++) {
+    const x = hash2(i, seed) * w;
+    const y = hash2(i, seed + 2.9) * h;
+    const r = min + hash2(i, seed + 6.3) * (max - min);
+    ctx.globalAlpha = alpha * (0.55 + hash2(i, seed + 4.7) * 0.6);
+    ctx.fillStyle = palette[Math.floor(hash2(i, seed + 8.1) * palette.length)];
+    const rot = (hash2(i, seed + 1.4) - 0.5) * 1.2;
+    // draw wrapped so the texture tiles without seams
+    for (const ox of [0, -w, w]) {
+      for (const oy of [0, -h, h]) {
+        if (Math.abs(x + ox - w / 2) > w / 2 + r * stretch || Math.abs(y + oy - h / 2) > h / 2 + r * stretch) continue;
+        ctx.beginPath();
+        ctx.ellipse(x + ox, y + oy, r * stretch, r, rot, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Short brush strokes, deterministic, used for grass, hedges and soil.
+function strokes(ctx, s, count, color, len, seed, width = 2) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
-  ctx.strokeRect(inset, inset, s - inset * 2, s - inset * 2);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < count; i++) {
+    const x = hash2(i, seed) * s;
+    const y = hash2(i, seed + 3.7) * s;
+    const lean = (hash2(i, seed + 9.1) - 0.5) * len * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + lean, y - len * (0.6 + hash2(i, seed + 5.3) * 0.6));
+    ctx.stroke();
+  }
 }
 
 const BACKDROP_VERT = /* glsl */ `
@@ -158,86 +215,190 @@ const BACKDROP_VERT = /* glsl */ `
   }
 `;
 
-// Synthwave backdrop: gradient sky, twinkling stars, a striped sun and a scrolling horizon grid.
+// Painted backdrop: a soft sky with drifting clouds and a warm sun, layered hills in
+// atmospheric haze, and a misty valley far below the floating course.
 const BACKDROP_FRAG = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
   uniform float uTime;
   uniform vec2 uRes;
-  uniform float uScale;
   uniform float uHorizon;
   uniform vec2 uSun;
-  uniform float uSunR;
   uniform vec3 cTop;
   uniform vec3 cMid;
   uniform vec3 cHaze;
-  uniform vec3 cSunA;
-  uniform vec3 cSunB;
-  uniform vec3 cFloor;
-  uniform vec3 cGrid;
+  uniform vec3 cSun;
+  uniform vec3 cCloud;
+  uniform vec3 cCloudShade;
+  uniform vec3 cHillFar;
+  uniform vec3 cHillMid;
+  uniform vec3 cHillNear;
+  uniform vec3 cValley;
+  uniform vec3 cMist;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
   }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+      v += a * noise(p);
+      p = p * 2.03 + 11.7;
+      a *= 0.5;
+    }
+    return v;
+  }
+  float ridge(float x, float seed) {
+    return noise(vec2(x + seed, seed)) * 0.6 + noise(vec2(x * 2.3 + seed, seed * 1.7)) * 0.28
+      + noise(vec2(x * 5.1 + seed, seed * 3.1)) * 0.12;
+  }
 
   void main() {
-    vec2 px = vUv * uRes;
-    float y = vUv.y;
-    vec3 col;
+    float aspect = uRes.x / uRes.y;
+    float xa = (vUv.x - 0.5) * aspect;
+    float yy = vUv.y - uHorizon;
+    float px = 1.5 / uRes.y;
 
-    if (y >= uHorizon) {
-      float t = (y - uHorizon) / max(0.001, 1.0 - uHorizon);
-      col = mix(cHaze, cMid, smoothstep(0.0, 0.42, t));
-      col = mix(col, cTop, smoothstep(0.3, 0.95, t));
+    // Sky
+    float t = clamp(yy / max(0.001, 1.0 - uHorizon), 0.0, 1.0);
+    vec3 col = mix(cHaze, cMid, smoothstep(0.0, 0.38, t));
+    col = mix(col, cTop, smoothstep(0.3, 1.0, t));
 
-      // Stars
-      float cell = 26.0 * uScale;
-      vec2 id = floor(px / cell);
-      vec2 f = fract(px / cell);
-      float h = hash(id);
-      if (h > 0.8) {
-        vec2 sp = vec2(hash(id + 1.3), hash(id + 2.7)) * 0.7 + 0.15;
-        float d = length(f - sp) * cell;
-        float tw = 0.55 + 0.45 * sin(uTime * (0.8 + 2.4 * hash(id + 5.1)) + h * 40.0);
-        float size = (0.7 + 1.1 * hash(id + 9.2)) * uScale;
-        col += vec3(0.85, 0.92, 1.0) * smoothstep(size, 0.0, d) * tw * smoothstep(0.08, 0.5, t);
-      }
+    // Sun: a soft disc inside a wide warm bloom
+    vec2 sv = (vUv - uSun / uRes) * vec2(aspect, 1.0);
+    float sd = length(sv);
+    col += cSun * exp(-sd * 5.5) * 0.55;
+    col = mix(col, vec3(1.0, 0.99, 0.93), smoothstep(0.034, 0.02, sd));
 
-      // Striped sun
-      vec2 sv = px - uSun;
-      float sd = length(sv);
-      float sy = sv.y / uSunR;
-      float disc = smoothstep(uSunR + 1.5, uSunR - 1.5, sd);
-      float band = fract((sy - uTime * 0.035) * 6.0);
-      float thick = mix(0.62, 0.0, smoothstep(-1.0, 0.35, sy));
-      float cut = step(band, thick);
-      vec3 sunCol = mix(cSunB, cSunA, smoothstep(-0.9, 0.9, sy));
-      col = mix(col, sunCol, disc * (1.0 - cut) * 0.46);
-      col += cSunB * exp(-max(sd - uSunR, 0.0) / (uSunR * 0.5)) * 0.2;
-    } else {
-      float d = uHorizon - y;
-      float aspect = uRes.x / uRes.y;
-      float wz = 0.5 / (d + 0.0025);
-      float wx = (vUv.x - 0.5) * aspect * wz * 2.2;
-      vec2 g = vec2(wx, wz + uTime * 0.55);
-      vec2 fw = fwidth(g);
-      vec2 a = abs(fract(g) - 0.5);
-      float lx = (1.0 - smoothstep(0.0, fw.x * 1.6, a.x)) * clamp(1.0 - fw.x * 1.6, 0.0, 1.0);
-      float lz = (1.0 - smoothstep(0.0, fw.y * 1.6, a.y)) * clamp(1.0 - fw.y * 1.6, 0.0, 1.0);
-      float line = max(lx, lz);
-      col = cFloor + cGrid * line * (0.5 * smoothstep(0.0, 0.05, d) + 0.12);
-      col += cHaze * exp(-d * 16.0) * 0.75;
-      col += cSunB * exp(-d * 70.0) * 0.55;
-    }
+    // Clouds: two cel-edged layers drifting at different speeds
+    float cl = fbm(vec2(xa * 1.5 + uTime * 0.012, yy * 4.6 + 3.0));
+    float cl2 = fbm(vec2(xa * 2.6 - uTime * 0.008 + 7.0, yy * 8.0));
+    float mask = smoothstep(0.03, 0.22, yy);
+    float body = smoothstep(0.58, 0.63, cl) * mask;
+    float lit = smoothstep(0.64, 0.69, cl);
+    col = mix(col, mix(cCloudShade, cCloud, lit), body * 0.82);
+    col = mix(col, cCloud, smoothstep(0.66, 0.72, cl2) * mask * 0.45);
 
-    // Darken the edges where the HUD and the card hand sit.
-    col *= mix(0.45, 1.0, smoothstep(0.0, 0.28, y)) * mix(0.72, 1.0, smoothstep(1.0, 0.82, y));
-    gl_FragColor = vec4(col, 1.0);
+    // Hills, far to near
+    float h1 = 0.05 + 0.12 * ridge(xa * 1.1, 3.0);
+    col = mix(col, mix(cHillFar, cHaze, 0.22), smoothstep(px, -px, yy - h1));
+    float h2 = -0.01 + 0.095 * ridge(xa * 1.9, 11.0);
+    col = mix(col, mix(cHillMid, cHaze, 0.08), smoothstep(px, -px, yy - h2));
+    // near ridge with a ragged treeline
+    float h3 = -0.085 + 0.09 * ridge(xa * 2.7, 23.0) + 0.012 * noise(vec2(xa * 46.0, 3.0));
+    vec3 near = mix(cHillNear, cValley, smoothstep(h3, h3 - 0.25, yy));
+    // dappled cloud shadows drifting over the valley floor
+    float dapple = fbm(vec2(xa * 2.2 + uTime * 0.01, yy * 7.0));
+    near *= mix(0.9, 1.06, smoothstep(0.35, 0.65, dapple));
+    near = mix(near, cMist, smoothstep(-0.2, -0.62, yy));
+    col = mix(col, near, smoothstep(px, -px, yy - h3));
+
+    // Broken colour: flecks of warm and cool laid over everything, wildflowers in the valley
+    vec2 q = vec2(xa * 34.0, yy * 64.0);
+    col += (noise(q) - 0.5) * 0.085 * vec3(1.0, 0.92, 0.6);
+    col += (noise(q * 2.1 + 9.0) - 0.5) * 0.07 * vec3(0.55, 0.65, 1.0);
+    float meadow = smoothstep(px, -px, yy - h3) * smoothstep(-0.6, -0.12, yy);
+    float fleck = noise(vec2(xa * 70.0, yy * 150.0));
+    col = mix(col, vec3(0.93, 0.33, 0.24), smoothstep(0.84, 0.9, fleck) * meadow * 0.28);
+    col = mix(col, vec3(0.99, 0.93, 0.55), smoothstep(0.8, 0.88, noise(vec2(xa * 64.0 + 20.0, yy * 140.0))) * meadow * 0.16);
+
+    // Haze pooling along the horizon
+    col = mix(col, cHaze, exp(-abs(yy) * 16.0) * 0.26);
+
+    // alpha 0.25 tells the paint pass this is backdrop: brush it fully
+    gl_FragColor = vec4(col, 0.25);
     // No-ops when rendering into the bloom composer; needed on the direct (low quality) path.
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
 `;
+
+// Finishing pass: a Kuwahara filter flattens each neighbourhood to its calmest quadrant, which reads as
+// brushwork; the lookup wobbles slightly so straight edges go hand-drawn, and a canvas grain sits on top.
+const PaintShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTexel: { value: new THREE.Vector2(1 / 512, 1 / 512) },
+    uSpread: { value: 1 },
+    uAspect: { value: 1 },
+    uBoard: { value: 0.38 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    precision highp float;
+    uniform sampler2D tDiffuse;
+    uniform vec2 uTexel;
+    uniform float uSpread;
+    uniform float uAspect;
+    uniform float uBoard;
+    varying vec2 vUv;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                 mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+
+    void main() {
+      vec2 g = vUv * vec2(uAspect, 1.0);
+      vec2 step = uTexel * uSpread;
+      vec4 src = texture2D(tDiffuse, vUv);
+      vec2 uv = vUv + (vec2(noise(g * 70.0), noise(g * 70.0 + 31.7)) - 0.5) * step * 3.2;
+
+      vec3 m0 = vec3(0.0); vec3 m1 = vec3(0.0); vec3 m2 = vec3(0.0); vec3 m3 = vec3(0.0);
+      vec3 s0 = vec3(0.0); vec3 s1 = vec3(0.0); vec3 s2 = vec3(0.0); vec3 s3 = vec3(0.0);
+      for (int j = 0; j <= 3; j++) {
+        for (int i = 0; i <= 3; i++) {
+          vec2 o = vec2(float(i), float(j)) * step;
+          vec3 c;
+          c = texture2D(tDiffuse, uv + vec2(-o.x, -o.y)).rgb; m0 += c; s0 += c * c;
+          c = texture2D(tDiffuse, uv + vec2(o.x, -o.y)).rgb; m1 += c; s1 += c * c;
+          c = texture2D(tDiffuse, uv + vec2(o.x, o.y)).rgb; m2 += c; s2 += c * c;
+          c = texture2D(tDiffuse, uv + vec2(-o.x, o.y)).rgb; m3 += c; s3 += c * c;
+        }
+      }
+      const float n = 16.0;
+      m0 /= n; m1 /= n; m2 /= n; m3 /= n;
+      vec3 v0 = abs(s0 / n - m0 * m0); vec3 v1 = abs(s1 / n - m1 * m1);
+      vec3 v2 = abs(s2 / n - m2 * m2); vec3 v3 = abs(s3 / n - m3 * m3);
+      float e0 = v0.r + v0.g + v0.b; float e1 = v1.r + v1.g + v1.b;
+      float e2 = v2.r + v2.g + v2.b; float e3 = v3.r + v3.g + v3.b;
+
+      vec3 col = m0;
+      float best = e0;
+      if (e1 < best) { best = e1; col = m1; }
+      if (e2 < best) { best = e2; col = m2; }
+      if (e3 < best) { col = m3; }
+
+      // canvas tooth
+      col *= 0.965 + 0.07 * noise(g * 420.0);
+      // The alpha channel says how much brush each pixel takes:
+      //   ~0.25 backdrop: fully painted   ~0.5 ball, pin, aim guides: untouched   1.0 the course: lightly brushed
+      float amount = src.a < 0.38 ? 1.0 : (src.a < 0.75 ? 0.0 : uBoard);
+      col = mix(src.rgb, col, amount);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+};
 
 export class GolfRenderer3D {
   constructor(canvas, { onDirectionPick, onSwipeDirection, theme = 'light', quality = 'auto' } = {}) {
@@ -250,8 +411,8 @@ export class GolfRenderer3D {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -275,7 +436,7 @@ export class GolfRenderer3D {
     this.scene.add(this.hemi);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2.0);
-    this.sun.position.set(9, 16, 7);
+    this.sun.position.set(-7, 15, 9);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 2;
@@ -285,27 +446,30 @@ export class GolfRenderer3D {
     this.sun.shadow.camera.top = 8;
     this.sun.shadow.camera.bottom = -8;
     this.sun.shadow.bias = -0.0012;
+    this.sun.shadow.radius = 3;
     this.scene.add(this.sun);
 
     this.rim = new THREE.DirectionalLight(0xff4fd0, 0.9);
-    this.rim.position.set(-8, 5, -9);
+    this.rim.position.set(9, 6, -6);
     this.scene.add(this.rim);
 
     // Backdrop (drawn first, ignores depth)
     this.backdropUniforms = {
       uTime: { value: 0 },
       uRes: { value: new THREE.Vector2(1, 1) },
-      uScale: { value: 1 },
       uHorizon: { value: 0.5 },
       uSun: { value: new THREE.Vector2(0, 0) },
-      uSunR: { value: 100 },
       cTop: { value: new THREE.Color() },
       cMid: { value: new THREE.Color() },
       cHaze: { value: new THREE.Color() },
-      cSunA: { value: new THREE.Color() },
-      cSunB: { value: new THREE.Color() },
-      cFloor: { value: new THREE.Color() },
-      cGrid: { value: new THREE.Color() },
+      cSun: { value: new THREE.Color() },
+      cCloud: { value: new THREE.Color() },
+      cCloudShade: { value: new THREE.Color() },
+      cHillFar: { value: new THREE.Color() },
+      cHillMid: { value: new THREE.Color() },
+      cHillNear: { value: new THREE.Color() },
+      cValley: { value: new THREE.Color() },
+      cMist: { value: new THREE.Color() },
     };
     this.backdrop = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
@@ -335,12 +499,28 @@ export class GolfRenderer3D {
     this.islandGroup.add(this.fxGroup);
 
     // Shared geometries (never disposed)
-    const s = TILE_SIZE - TILE_GAP;
+    const s = TILE_SIZE;
+    this.toonRamp = makeToonRamp();
     this.geo = {
       cap: new THREE.BoxGeometry(s, CAP_H, s),
+      overlay: new THREE.PlaneGeometry(s * 0.9, s * 0.9).rotateX(-Math.PI / 2),
+      hedge: new RoundedBoxGeometry(0.84, 0.58, 0.84, 3, 0.13),
+      topiary: new THREE.SphereGeometry(0.27, 14, 10),
+      stal: new THREE.ConeGeometry(s * 0.71, 1, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(0, -0.5, 0),
+      flower: new THREE.SphereGeometry(0.042, 6, 4).scale(1, 0.55, 1),
+      tuft: new THREE.ConeGeometry(0.034, 0.15, 4).translate(0, 0.075, 0),
+      stem: new THREE.CylinderGeometry(0.1, 0.13, 0.2, 12).translate(0, 0.1, 0),
+      shroom: new THREE.SphereGeometry(0.3, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.72, 1),
+      spot: new THREE.SphereGeometry(0.05, 8, 6).scale(1, 0.5, 1),
+      stoneRing: new THREE.TorusGeometry(0.31, 0.075, 8, 20).rotateX(Math.PI / 2).scale(1, 0.7, 1),
+      portalDisc: new THREE.CircleGeometry(0.25, 24).rotateX(-Math.PI / 2),
+      cupHole: new THREE.CylinderGeometry(0.22, 0.22, 0.04, 24),
+      cupRim: new THREE.RingGeometry(0.21, 0.265, 28).rotateX(-Math.PI / 2),
+      pole: new THREE.CylinderGeometry(0.026, 0.026, 1.15, 8),
+      puff: new THREE.SphereGeometry(1, 14, 10),
       spark: new THREE.SphereGeometry(0.05, 6, 6),
-      dot: new THREE.SphereGeometry(0.042, 8, 6),
-      ring: new THREE.RingGeometry(0.2, 0.29, 28).rotateX(-Math.PI / 2),
+      dot: new THREE.SphereGeometry(0.055, 8, 6),
+      ring: new THREE.RingGeometry(0.19, 0.28, 28).rotateX(-Math.PI / 2),
       ringCore: new THREE.CircleGeometry(0.2, 24).rotateX(-Math.PI / 2),
       hitArrow: new THREE.BoxGeometry(0.92, 0.6, 0.98),
       hitTile: new THREE.BoxGeometry(0.96, 0.3, 0.96),
@@ -353,13 +533,7 @@ export class GolfRenderer3D {
     this.ballGroup = new THREE.Group();
     this.ballMesh = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 28, 24),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.25,
-        metalness: 0.05,
-        emissive: 0xbfe8ff,
-        emissiveIntensity: 0.45,
-      })
+      crisp(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.toonRamp, emissive: 0x5a6670, emissiveIntensity: 0.5 }))
     );
     this.ballMesh.castShadow = true;
     this.ballGroup.add(this.ballMesh);
@@ -369,19 +543,13 @@ export class GolfRenderer3D {
     shadowGeo.rotateX(-Math.PI / 2);
     this.ballShadow = new THREE.Mesh(
       shadowGeo,
-      new THREE.MeshBasicMaterial({ color: 0x000010, transparent: true, opacity: 0.4, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: 0x1d3b2a, transparent: true, opacity: 0.32, depthWrite: false })
     );
     this.islandGroup.add(this.ballShadow);
     this.islandGroup.add(this.ballGroup);
 
     // Comet trail behind the moving ball
-    this.trailMat = new THREE.MeshBasicMaterial({
-      color: NEON.cyan,
-      transparent: true,
-      opacity: 0.55,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
+    this.trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, depthWrite: false });
     this.trail = [];
     this.trailHistory = [];
     const trailGeo = new THREE.SphereGeometry(BALL_R * 0.82, 10, 8);
@@ -396,12 +564,19 @@ export class GolfRenderer3D {
     this.motes = this.makeMotes();
     this.islandGroup.add(this.motes);
 
+    // Cloud puffs drifting around and below the island
+    this.cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.toonRamp, emissive: 0x8fa6bd, emissiveIntensity: 0.32 });
+    this.clouds = this.makeClouds();
+    this.scene.add(this.clouds);
+
     // Animated references
     this.columns = [];
     this.portalRings = [];
     this.portalDiscs = [];
     this.springRings = [];
     this.beams = [];
+    this.flora = [];
+    this.floraT = 1;
     this.flagCloth = null;
     this.arrowHitMeshes = [];
     this.tileHitMeshes = [];
@@ -473,14 +648,14 @@ export class GolfRenderer3D {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, s, s);
     });
+    // Pollen catching the light
     this.moteMat = new THREE.PointsMaterial({
       map: sprite,
-      size: 6,
+      size: 5,
       sizeAttenuation: false,
-      color: NEON.cyan,
+      color: 0xfffbe0,
       transparent: true,
-      opacity: 0.6,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.75,
       depthWrite: false,
     });
     const pts = new THREE.Points(geo, this.moteMat);
@@ -488,19 +663,47 @@ export class GolfRenderer3D {
     return pts;
   }
 
+  makeClouds() {
+    const group = new THREE.Group();
+    this.cloudSeeds = [];
+    for (let i = 0; i < 5; i++) {
+      const cloud = new THREE.Group();
+      const puffs = 4 + Math.floor(hash2(i, 2.2) * 3);
+      for (let k = 0; k < puffs; k++) {
+        const puff = new THREE.Mesh(this.geo.puff, this.cloudMat);
+        const r = 0.34 + hash2(i * 7 + k, 5.1) * 0.36;
+        puff.scale.set(r, r * 0.62, r * 0.85);
+        puff.position.set((k - (puffs - 1) / 2) * 0.48, hash2(i * 3 + k, 8.4) * 0.22, (hash2(i + k, 1.9) - 0.5) * 0.5);
+        cloud.add(puff);
+      }
+      this.cloudSeeds.push({
+        ang: (i / 5) * Math.PI * 2 + hash2(i, 6.6),
+        rad: 2.2 + hash2(i, 3.3) * 3.2,
+        y: -2.6 - hash2(i, 9.1) * 3.0,
+        speed: 0.012 + hash2(i, 4.4) * 0.02,
+      });
+      group.add(cloud);
+    }
+    return group;
+  }
+
   setupPipeline() {
     if (this.composer) {
       this.composer.dispose();
       this.composer = null;
       this.bloomPass = null;
+      this.paintPass = null;
     }
     const dpr = window.devicePixelRatio || 1;
     if (this.quality === 'high') {
-      this.renderer.setPixelRatio(Math.min(dpr, 2));
+      // The paint filter hides fine detail anyway, so the composer runs at a modest density.
+      this.renderer.setPixelRatio(Math.min(dpr, 1.5));
       const target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(this.renderer, target);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), THEMES[this.themeName].bloom, 0.55, 0.86);
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), THEMES[this.themeName].bloom, 0.7, 0.9);
+      this.paintPass = new ShaderPass(PaintShader);
+      this.composer.addPass(this.paintPass);
       this.composer.addPass(this.bloomPass);
       this.composer.addPass(new OutputPass());
     } else {
@@ -547,239 +750,250 @@ export class GolfRenderer3D {
   buildMaterials() {
     this.disposeMats();
     const t = THEMES[this.themeName];
-    const std = (o) => new THREE.MeshStandardMaterial(o);
-    const rim = (hex, int = 0.55) => std({ color: hex, emissive: hex, emissiveIntensity: int, roughness: 0.5 });
-    const turf = (base) =>
-      tileMaterial({
-        paint: (ctx, s) => {
-          ctx.fillStyle = base;
-          ctx.fillRect(0, 0, s, s);
-          // faint mowing stripes
-          ctx.fillStyle = 'rgba(255,255,255,0.045)';
-          for (let x = 0; x < s; x += 32) ctx.fillRect(x, 0, 16, s);
-          strokeBorder(ctx, s, t.turfLine, 3, 2.5);
-          ctx.globalAlpha = 0.25;
-          strokeBorder(ctx, s, t.turfLine, 8, 4);
-          ctx.globalAlpha = 1;
-        },
-        glow: (ctx, s) => {
-          ctx.globalAlpha = 0.38;
-          strokeBorder(ctx, s, t.turfLine, 3, 2.5);
-        },
-        roughness: 0.85,
-      });
-
+    const ramp = this.toonRamp;
+    const toon = (o) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...o });
     const m = {};
-    m.grassA = turf(t.turfA);
-    m.grassB = turf(t.turfB);
 
-    m.sand = tileMaterial({
-      paint: (ctx, s) => {
-        ctx.fillStyle = t.sand;
+    // Turf: mown in two tones, laid in with dabs of yellow, blue-green and a little violet shadow.
+    const turfPalette = ['#c4e86e', '#a2dc5c', '#5aa84c', '#4aa07a', '#e9e57c', '#7f8fd2', '#6fbf52'];
+    const turf = (base, seed) =>
+      paintedMaterial(ramp, (ctx, s) => {
+        ctx.fillStyle = base;
         ctx.fillRect(0, 0, s, s);
-        ctx.fillStyle = t.sandDot;
-        for (let i = 0; i < 46; i++) {
-          const x = hash2(i, 2.1) * s;
-          const y = hash2(i, 7.3) * s;
+        dabs(ctx, s, s, 90, turfPalette, seed, { min: 4, max: 11, alpha: 0.3 });
+        dabs(ctx, s, s, 26, ['#f4f0a0', '#d8f08a'], seed + 31, { min: 2, max: 5, alpha: 0.5 });
+        strokes(ctx, s, 40, 'rgba(255,255,205,0.28)', 10, seed + 1.3);
+        strokes(ctx, s, 26, 'rgba(30,80,50,0.2)', 8, seed + 6.1);
+        // a loose, broken seam so the grid still reads under the brushwork
+        ctx.strokeStyle = 'rgba(38,92,48,0.34)';
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 28; i++) {
+          const along = hash2(i, seed + 14.2) * s;
+          const len = 8 + hash2(i, seed + 3.4) * 16;
+          const side = i % 4;
+          ctx.lineWidth = 2 + hash2(i, seed + 9.9) * 3;
           ctx.beginPath();
-          ctx.arc(x, y, 1.6 + hash2(i, 5.5) * 2.2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.strokeStyle = 'rgba(255,240,200,0.35)';
-        ctx.lineWidth = 3;
-        for (let y = 22; y < s; y += 28) {
-          ctx.beginPath();
-          for (let x = 0; x <= s; x += 8) ctx.lineTo(x, y + Math.sin(x * 0.1 + y) * 4);
+          if (side === 0) { ctx.moveTo(along, 1.5); ctx.lineTo(along + len, 1.5); }
+          else if (side === 1) { ctx.moveTo(along, s - 1.5); ctx.lineTo(along + len, s - 1.5); }
+          else if (side === 2) { ctx.moveTo(1.5, along); ctx.lineTo(1.5, along + len); }
+          else { ctx.moveTo(s - 1.5, along); ctx.lineTo(s - 1.5, along + len); }
           ctx.stroke();
         }
-        strokeBorder(ctx, s, '#ffe7a8', 3, 2.5);
-      },
-      glow: (ctx, s) => {
-        ctx.globalAlpha = 0.3;
-        strokeBorder(ctx, s, '#ffcf66', 3, 2.5);
-      },
-      roughness: 0.95,
+      });
+    m.grass = [turf(t.turfA, 1), turf(t.turfA, 40), turf(t.turfB, 80), turf(t.turfB, 120)];
+
+    m.sand = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.sand;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 60, ['#fff6d6', '#efd596', '#f7cdaa', '#e7d6ee', '#f9e7b4'], 3, { min: 5, max: 12, alpha: 0.5 });
+      // raked arcs, drawn loosely
+      ctx.strokeStyle = t.sandLine;
+      ctx.lineCap = 'round';
+      for (let r = 20, i = 0; r < s * 1.5; r += 19, i++) {
+        ctx.globalAlpha = 0.45 + hash2(i, 2.2) * 0.3;
+        ctx.lineWidth = 2 + hash2(i, 5.5) * 2.5;
+        ctx.beginPath();
+        ctx.arc(-6, s + 6, r + hash2(i, 7.1) * 4, -Math.PI / 2, 0);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     });
 
-    m.ice = tileMaterial({
-      paint: (ctx, s) => {
-        const g = ctx.createLinearGradient(0, 0, s, s);
-        g.addColorStop(0, '#e9fbff');
-        g.addColorStop(0.5, t.ice);
-        g.addColorStop(1, '#8fd8f5');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, s, s);
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    m.ice = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.ice;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 60, ['#ffffff', '#c9e8f6', '#dcd6f4', '#b7e2f3', '#f4fbff'], 5, { min: 6, max: 14, alpha: 0.55, stretch: 2.2 });
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(24, s - 34);
+      ctx.lineTo(s - 40, 24);
+      ctx.moveTo(56, s - 20);
+      ctx.lineTo(s - 20, 60);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(110,150,205,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(20, 30);
+      ctx.lineTo(48, 52);
+      ctx.lineTo(42, 84);
+      ctx.moveTo(48, 52);
+      ctx.lineTo(82, 58);
+      ctx.stroke();
+    }, { extra: { emissive: 0x9fd4ea, emissiveIntensity: 0.18 } });
+
+    m.mud = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.mud;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 60, [t.mudDark, '#a27a54', '#5c4a62', '#7a5a3c', '#b08a62'], 7, { min: 6, max: 13, alpha: 0.55 });
+      ctx.fillStyle = 'rgba(255,240,220,0.2)';
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.ellipse(hash2(i, 4.1) * s, hash2(i, 8.4) * s, 7, 2.5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      strokes(ctx, s, 16, 'rgba(120,170,70,0.8)', 10, 12.5, 2.5);
+    });
+
+    // Pond: blues and violets in flat horizontal dabs, a glint or two, and lily pads.
+    m.water = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.water;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 80, ['#86d6f0', t.waterDeep, '#8f9fe8', '#bfe8f4', '#5fc7c0', '#6a8fd8'], 9, { min: 3, max: 7, alpha: 0.55, stretch: 3.2 });
+      dabs(ctx, s, s, 16, ['#ffffff'], 21, { min: 1.2, max: 2.4, alpha: 0.85, stretch: 4 });
+      for (const [px, py, pr] of [[38, 44, 13], [88, 84, 10], [96, 30, 7]]) {
+        ctx.fillStyle = '#4f9c4a';
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.arc(px, py, pr, 0.5, Math.PI * 2 - 0.1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#7cc45c';
+        ctx.beginPath();
+        ctx.arc(px - pr * 0.2, py - pr * 0.2, pr * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const [px, py] of [[42, 40], [90, 80]]) {
+        ctx.fillStyle = '#ffd0e2';
+        ctx.beginPath();
+        ctx.arc(px, py, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff3a0';
+        ctx.beginPath();
+        ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }, { extra: { emissive: 0x2f86b8, emissiveIntensity: 0.25 } });
+
+    // Boost strip: a boardwalk with chalked chevrons that slide along it.
+    m.conveyor = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.plank;
+      ctx.fillRect(0, 0, s, s);
+      ctx.strokeStyle = t.plankDark;
+      ctx.lineWidth = 3;
+      for (let y = 0; y <= s; y += s / 4) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(s, y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = t.plankDark;
+      for (let y = s / 8; y < s; y += s / 4) {
+        for (const x of [12, s - 12]) {
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      dabs(ctx, s, s, 34, ['#d49a62', '#8f5c36', '#a8703f', '#7a5a6a'], 13, { min: 3, max: 6, alpha: 0.35, stretch: 3.5 });
+    });
+    m.chevrons = new THREE.MeshBasicMaterial({
+      map: makeCanvasTex(128, (ctx, s) => {
+        ctx.clearRect(0, 0, s, s);
+        ctx.strokeStyle = '#fffaf0';
+        ctx.lineWidth = 11;
         ctx.lineCap = 'round';
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(22, s - 30);
-        ctx.lineTo(s - 34, 22);
-        ctx.moveTo(52, s - 18);
-        ctx.lineTo(s - 18, 56);
-        ctx.stroke();
-        strokeBorder(ctx, s, '#ffffff', 3, 2.5);
-      },
-      glow: (ctx, s) => {
-        ctx.fillStyle = 'rgba(120,220,255,0.16)';
-        ctx.fillRect(0, 0, s, s);
-        ctx.globalAlpha = 0.55;
-        strokeBorder(ctx, s, '#bdf4ff', 3, 2.5);
-      },
-      roughness: 0.12,
-      metalness: 0.15,
-    });
-
-    m.mud = tileMaterial({
-      paint: (ctx, s) => {
-        ctx.fillStyle = t.mud;
-        ctx.fillRect(0, 0, s, s);
-        ctx.fillStyle = t.mudDot;
-        for (let i = 0; i < 16; i++) {
+        ctx.lineJoin = 'round';
+        for (const yOff of [14, 78]) {
           ctx.beginPath();
-          ctx.ellipse(hash2(i, 1.1) * s, hash2(i, 6.4) * s, 8 + hash2(i, 3.3) * 9, 5 + hash2(i, 9.9) * 5, hash2(i, 2.2) * 3, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(34, yOff + 32);
+          ctx.lineTo(s / 2, yOff + 6);
+          ctx.lineTo(s - 34, yOff + 32);
+          ctx.stroke();
         }
-        ctx.globalAlpha = 0.5;
-        strokeBorder(ctx, s, '#b58cff', 3, 2.5);
-        ctx.globalAlpha = 1;
-      },
-      glow: (ctx, s) => {
-        ctx.globalAlpha = 0.25;
-        strokeBorder(ctx, s, '#b58cff', 3, 2.5);
-      },
-      roughness: 1,
+      }, { repeat: true }),
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
     });
 
-    const waterLines = (ctx, s, color, width) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.lineCap = 'round';
-      for (let y = 16; y < s; y += 32) {
+    m.ramp = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.ramp;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 80, turfPalette, 55, { min: 4, max: 10, alpha: 0.38 });
+      strokes(ctx, s, 40, 'rgba(255,255,205,0.28)', 9, 2.9);
+      ctx.fillStyle = 'rgba(255,255,235,0.42)';
+      for (const yOff of [28, 64, 100]) {
         ctx.beginPath();
-        for (let x = 0; x <= s; x += 8) ctx.lineTo(x, y + Math.sin((x / s) * Math.PI * 4 + y) * 5);
-        ctx.stroke();
+        ctx.moveTo(s / 2, yOff - 15);
+        ctx.lineTo(s - 34, yOff + 7);
+        ctx.lineTo(34, yOff + 7);
+        ctx.closePath();
+        ctx.fill();
       }
-    };
-    m.water = tileMaterial({
-      paint: (ctx, s) => {
-        ctx.fillStyle = t.water;
-        ctx.fillRect(0, 0, s, s);
-        waterLines(ctx, s, t.waterLine, 4);
-      },
-      glow: (ctx, s) => {
-        ctx.fillStyle = 'rgba(30,110,220,0.35)';
-        ctx.fillRect(0, 0, s, s);
-        waterLines(ctx, s, t.waterLine, 4);
-      },
-      glowInt: 0.95,
-      roughness: 0.15,
-      metalness: 0.2,
     });
+    m.rampSide = toon({ color: t.soil });
 
-    const chevrons = (ctx, s, color) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 12;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const yOff of [14, 78]) {
+    // Cliff face: a lip of grass over layered soil. Two world units tall, clamped (never repeats down).
+    m.cliff = paintedMaterial(ramp, (ctx, w, h) => {
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, t.soil);
+      g.addColorStop(1, t.soilDark);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      dabs(ctx, w, h, 110, ['#dcae7c', '#b8865a', '#8f6a52', '#9c7c9e', '#c9905e', '#7a5a48'], 17, { min: 5, max: 12, alpha: 0.5, stretch: 2.4 });
+      ctx.fillStyle = 'rgba(255,235,200,0.3)';
+      for (let i = 0; i < 16; i++) {
         ctx.beginPath();
-        ctx.moveTo(30, yOff + 34);
-        ctx.lineTo(s / 2, yOff + 6);
-        ctx.lineTo(s - 30, yOff + 34);
-        ctx.stroke();
+        ctx.ellipse(hash2(i, 2.4) * w, 34 + hash2(i, 5.7) * (h - 40), 5 + hash2(i, 1.2) * 5, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
-    };
-    m.conveyor = tileMaterial({
-      paint: (ctx, s) => {
-        ctx.fillStyle = t.conveyor;
-        ctx.fillRect(0, 0, s, s);
-        chevrons(ctx, s, '#ffc23d');
-      },
-      glow: (ctx, s) => chevrons(ctx, s, '#ffb020'),
-      glowInt: 1.25,
-      roughness: 0.45,
-    });
-
-    m.ramp = tileMaterial({
-      paint: (ctx, s) => {
-        ctx.fillStyle = t.ramp;
-        ctx.fillRect(0, 0, s, s);
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        for (const yOff of [26, 62, 98]) {
-          ctx.beginPath();
-          ctx.moveTo(s / 2, yOff - 16);
-          ctx.lineTo(s - 30, yOff + 8);
-          ctx.lineTo(30, yOff + 8);
-          ctx.closePath();
-          ctx.fill();
-        }
-        strokeBorder(ctx, s, t.turfLine, 3, 2.5);
-      },
-      glow: (ctx, s) => {
-        ctx.globalAlpha = 0.4;
-        strokeBorder(ctx, s, t.turfLine, 3, 2.5);
-      },
-      roughness: 0.75,
-    });
-    m.rampSide = std({ color: t.cliff, roughness: 0.9 });
-
-    // Cliff strata: lines repeat once per world unit down each column.
-    const strata = (ctx, s, glowOnly) => {
-      if (!glowOnly) {
-        ctx.fillStyle = t.cliff;
-        ctx.fillRect(0, 0, s, s);
-        ctx.fillStyle = 'rgba(0,0,0,0.22)';
-        ctx.fillRect(0, s * 0.5, s, s * 0.5);
+      // overhanging grass with scalloped drips (tiles horizontally)
+      ctx.fillStyle = t.turfDark;
+      ctx.fillRect(0, 0, w, 15);
+      for (let i = 0; i < 8; i++) {
+        ctx.beginPath();
+        ctx.arc((i + 0.5) * (w / 8), 14, w / 16, 0, Math.PI);
+        ctx.fill();
       }
-      ctx.fillStyle = t.cliffLine;
-      ctx.globalAlpha = glowOnly ? 0.7 : 0.85;
-      ctx.fillRect(0, s * 0.3, s, 2);
-      ctx.globalAlpha = glowOnly ? 0.35 : 0.5;
-      ctx.fillRect(0, s * 0.62, s, 2);
-      ctx.fillRect(0, s * 0.86, s, 1.5);
-      ctx.globalAlpha = 1;
-    };
-    m.cliff = tileMaterial({
-      paint: (ctx, s) => strata(ctx, s, false),
-      glow: (ctx, s) => strata(ctx, s, true),
-      glowInt: 0.7,
-      roughness: 0.9,
-    });
-    m.rock = std({ color: t.rock, roughness: 1, flatShading: true });
-
-    // Wall blocks: a nod to the circuit blocks of Infinite Best.
-    const wallFace = (ctx, s, glowOnly) => {
-      if (!glowOnly) {
-        ctx.fillStyle = t.wall;
-        ctx.fillRect(0, 0, s, s);
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc((i * 2 + 0.5) * (w / 8), 20, w / 22, 0, Math.PI);
+        ctx.fill();
       }
-      ctx.globalAlpha = glowOnly ? 0.75 : 1;
-      strokeBorder(ctx, s, t.wallLine, 5, 5);
-      ctx.globalAlpha = glowOnly ? 0.4 : 0.7;
-      strokeBorder(ctx, s, t.wallLine, 4, 36);
-      ctx.globalAlpha = 1;
-    };
-    m.wall = tileMaterial({
-      paint: (ctx, s) => wallFace(ctx, s, false),
-      glow: (ctx, s) => wallFace(ctx, s, true),
-      glowInt: 0.85,
-      roughness: 0.6,
+      ctx.fillStyle = t.turfB;
+      ctx.fillRect(0, 0, w, 6);
+      dabs(ctx, w, 20, 30, ['#c4e86e', '#5aa84c', '#4aa07a'], 23, { min: 2, max: 5, alpha: 0.6 });
+    }, { height: 256 });
+    m.cliff.map.wrapT = THREE.ClampToEdgeWrapping;
+    m.rock = toon({ color: t.rock });
+
+    // Boxwood hedge (walls)
+    m.hedge = paintedMaterial(ramp, (ctx, s) => {
+      ctx.fillStyle = t.hedge;
+      ctx.fillRect(0, 0, s, s);
+      dabs(ctx, s, s, 40, ['#2a6a52', '#3b5f8a', '#5aa84c', '#234f38'], 27, { min: 5, max: 10, alpha: 0.45 });
+      ctx.fillStyle = t.hedgeDark;
+      for (let i = 0; i < 60; i++) {
+        ctx.beginPath();
+        ctx.arc(hash2(i, 2.7) * s, hash2(i, 8.1) * s, 4 + hash2(i, 4.3) * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(200,240,150,0.5)';
+      for (let i = 0; i < 46; i++) {
+        ctx.beginPath();
+        ctx.arc(hash2(i, 5.9) * s, hash2(i, 1.6) * s, 2.5 + hash2(i, 7.7) * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     });
 
-    m.rimGrass = rim(new THREE.Color(t.turfLine).getHex(), 0.5);
-    m.rimSand = rim(0xffcf66, 0.45);
-    m.rimIce = rim(0xbdf4ff, 0.6);
-    m.rimMud = rim(0x8a5fd6, 0.4);
-    m.rimWater = rim(new THREE.Color(t.waterLine).getHex(), 0.7);
-    m.rimConv = rim(NEON.amber, 0.6);
+    m.rimGrass = toon({ color: t.turfDark });
+    m.rimSand = toon({ color: t.sandLine });
+    m.rimIce = toon({ color: 0xb4dcec });
+    m.rimMud = toon({ color: t.mudDark });
+    m.rimWater = toon({ color: t.waterDeep });
+    m.rimConv = toon({ color: t.plankDark });
 
-    m.springBase = std({ color: 0xff5a4a, emissive: 0xff3a2a, emissiveIntensity: 0.6, roughness: 0.35 });
-    m.springRing = std({ color: 0xffe066, emissive: 0xffc23d, emissiveIntensity: 1.4, roughness: 0.3 });
-    m.cupHole = new THREE.MeshBasicMaterial({ color: 0x02030c });
-    m.cupRim = new THREE.MeshBasicMaterial({ color: 0xfff3b0, side: THREE.DoubleSide });
-    m.pole = std({ color: 0xf4f6ff, emissive: 0xaab8ff, emissiveIntensity: 0.35, roughness: 0.3 });
-    m.flag = std({ color: 0xff3f6a, emissive: 0xff2a5a, emissiveIntensity: 1.1, side: THREE.DoubleSide, roughness: 0.45 });
+    // Bouncy mushroom (springs)
+    m.shroomStem = toon({ color: 0xf7edd8 });
+    m.shroomCap = toon({ color: 0xe2503a });
+    m.shroomSpot = toon({ color: 0xfffaf0 });
+
+    m.cupHole = crisp(new THREE.MeshBasicMaterial({ color: 0x17120e }));
+    m.cupRim = crisp(new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    m.pole = crisp(toon({ color: 0xfdfaf2 }));
+    m.flag = crisp(toon({ color: 0xd9372c, side: THREE.DoubleSide }));
 
     const beamTex = makeCanvasTex(64, (ctx, s) => {
       const g = ctx.createLinearGradient(0, 0, 0, s);
@@ -788,8 +1002,8 @@ export class GolfRenderer3D {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, s, s);
     });
-    const beam = (hex, opacity) =>
-      new THREE.MeshBasicMaterial({
+    const beam = (hex, opacity) => {
+      const mat = new THREE.MeshBasicMaterial({
         map: beamTex,
         color: hex,
         transparent: true,
@@ -798,16 +1012,21 @@ export class GolfRenderer3D {
         depthWrite: false,
         side: THREE.DoubleSide,
       });
-    m.beamCup = beam(0xffd76a, 0.5);
-    m.beamA = beam(NEON.magenta, 0.42);
-    m.beamB = beam(NEON.cyan, 0.42);
+      mat.userData.baseOpacity = opacity;
+      return mat;
+    };
+    m.beamCup = beam(0xfff2c0, 0.2);
+    m.beamA = beam(0x6ff0e0, 0.26);
+    m.beamB = beam(0xffc08a, 0.26);
 
+    // Standing-stone rings with a slow swirl of light (portals)
+    m.stone = toon({ color: 0xbdb6a6 });
     const swirlTex = makeCanvasTex(128, (ctx, s) => {
       ctx.clearRect(0, 0, s, s);
       ctx.translate(s / 2, s / 2);
       ctx.strokeStyle = '#fff';
       ctx.lineCap = 'round';
-      ctx.lineWidth = 7;
+      ctx.lineWidth = 9;
       for (let arm = 0; arm < 3; arm++) {
         ctx.beginPath();
         for (let i = 0; i <= 40; i++) {
@@ -818,19 +1037,15 @@ export class GolfRenderer3D {
         ctx.stroke();
       }
     });
-    const portal = (hex) => ({
-      ring: std({ color: hex, emissive: hex, emissiveIntensity: 1.5, roughness: 0.2 }),
-      disc: new THREE.MeshBasicMaterial({
-        map: swirlTex,
-        color: hex,
-        transparent: true,
-        opacity: 0.85,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
+    const pool = (base, swirl) => ({
+      base: new THREE.MeshBasicMaterial({ color: base }),
+      disc: new THREE.MeshBasicMaterial({ map: swirlTex, color: swirl, transparent: true, opacity: 0.95, depthWrite: false }),
     });
-    m.portalA = portal(NEON.magenta);
-    m.portalB = portal(NEON.cyan);
+    m.portalA = pool(0x1fae9f, 0xcffff6);
+    m.portalB = pool(0xf07f45, 0xfff0d0);
+
+    m.flower = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    m.tuft = toon({ color: 0xffffff });
 
     this.mats = m;
   }
@@ -845,17 +1060,25 @@ export class GolfRenderer3D {
     this.sun.intensity = t.sunInt;
     this.rim.color.setHex(t.rimColor);
     this.rim.intensity = t.rimInt;
+    // Lower, longer light at golden hour
+    if (this.themeName === 'dark') this.sun.position.set(-10, 10, 8);
+    else this.sun.position.set(-7, 15, 9);
 
     const u = this.backdropUniforms;
     u.cTop.value.set(t.skyTop);
     u.cMid.value.set(t.skyMid);
     u.cHaze.value.set(t.skyHaze);
-    u.cSunA.value.set(t.sunA);
-    u.cSunB.value.set(t.sunB);
-    u.cFloor.value.set(t.floor);
-    u.cGrid.value.set(t.grid);
+    u.cSun.value.set(t.sunGlow);
+    u.cCloud.value.set(t.cloud);
+    u.cCloudShade.value.set(t.cloudShade);
+    u.cHillFar.value.set(t.hillFar);
+    u.cHillMid.value.set(t.hillMid);
+    u.cHillNear.value.set(t.hillNear);
+    u.cValley.value.set(t.valley);
+    u.cMist.value.set(t.mist);
 
-    this.moteMat.color.set(this.themeName === 'dark' ? NEON.cyan : 0xffc27a);
+    this.cloudMat.color.setHex(t.cloud3d);
+    this.cloudMat.emissive.set(t.cloudShade);
     if (this.bloomPass) this.bloomPass.strength = t.bloom;
 
     this.buildMaterials();
@@ -886,13 +1109,12 @@ export class GolfRenderer3D {
 
   columnGeometry(height, cache) {
     if (cache.has(height)) return cache.get(height);
-    const s = TILE_SIZE - TILE_GAP;
-    const geo = this.track(new THREE.BoxGeometry(s, height, s));
-    // Side faces: stretch V in world units so strata lines line up between columns.
+    const geo = this.track(new THREE.BoxGeometry(TILE_SIZE, height, TILE_SIZE));
+    // Side faces: the cliff texture spans two world units from the top edge down.
     const uv = geo.attributes.uv;
     for (const face of [0, 1, 4, 5]) {
       for (let i = face * 4; i < face * 4 + 4; i++) {
-        uv.setY(i, (uv.getY(i) - 1) * height);
+        uv.setY(i, 1 - ((1 - uv.getY(i)) * height) / 2);
       }
     }
     cache.set(height, geo);
@@ -914,15 +1136,17 @@ export class GolfRenderer3D {
     this.portalDiscs = [];
     this.springRings = [];
     this.beams = [];
+    this.flora = [];
     this.flagCloth = null;
     this.clearArrows();
 
     const m = this.mats;
-    const s = TILE_SIZE - TILE_GAP;
+    const s = TILE_SIZE;
     const colGeos = new Map();
-    const wallGeo = this.track(new THREE.BoxGeometry(s * 0.88, 0.56, s * 0.88));
-    const stalGeo = this.track(new THREE.ConeGeometry(s * 0.69, 1, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(0, -0.5, 0));
     const maxDist = Math.hypot(level.width, level.height) / 2;
+    const flowers = [];
+    const tufts = [];
+    const dummy = new THREE.Object3D();
     let maxElev = 0;
 
     for (let y = 0; y < level.height; y++) {
@@ -940,13 +1164,14 @@ export class GolfRenderer3D {
         this.boardGroup.add(col);
 
         const isWater = cell.terrain === TERRAIN.WATER;
+        const isSand = cell.terrain === TERRAIN.SAND;
         const isRamp = RAMP_DIR[cell.terrain] !== undefined;
         const isConv = CONV_DIR[cell.terrain] !== undefined;
-        const sink = isWater ? 0.12 : 0;
+        const sink = isWater ? 0.12 : isSand ? 0.04 : 0;
         const topY = pos.y - sink;
         const capBottom = isRamp ? topY : topY - CAP_H;
 
-        // Cliff column
+        // Soil column
         const colH = Math.round((capBottom + BASE_THICKNESS) * 1000) / 1000;
         const column = new THREE.Mesh(this.columnGeometry(colH, colGeos), m.cliff);
         column.position.y = capBottom - colH / 2;
@@ -954,11 +1179,10 @@ export class GolfRenderer3D {
         column.castShadow = true;
         col.add(column);
 
-        // Jagged rock underside: longest under the middle of the island
+        // Rock underside: longest under the middle of the island
         const centre = Math.hypot(x - (level.width - 1) / 2, y - (level.height - 1) / 2);
-        const stalH = 0.35 + (1 - centre / maxDist) * 1.25 + hash2(x * 3.1, y * 1.7) * 0.5;
-        const stal = new THREE.Mesh(stalGeo, m.rock);
-        stal.scale.y = stalH;
+        const stal = new THREE.Mesh(this.geo.stal, m.rock);
+        stal.scale.y = 0.35 + (1 - centre / maxDist) * 1.25 + hash2(x * 3.1, y * 1.7) * 0.5;
         stal.position.y = -BASE_THICKNESS;
         col.add(stal);
 
@@ -968,9 +1192,9 @@ export class GolfRenderer3D {
           wedge.position.y = topY;
           col.add(wedge);
         } else {
-          let topMat = (x + y) % 2 === 0 ? m.grassA : m.grassB;
+          let topMat = m.grass[((x + y) % 2) * 2 + (hash2(x * 1.7, y * 2.3) > 0.5 ? 1 : 0)];
           let rimMat = m.rimGrass;
-          if (cell.terrain === TERRAIN.SAND) { topMat = m.sand; rimMat = m.rimSand; }
+          if (isSand) { topMat = m.sand; rimMat = m.rimSand; }
           else if (cell.terrain === TERRAIN.ICE) { topMat = m.ice; rimMat = m.rimIce; }
           else if (cell.terrain === TERRAIN.MUD) { topMat = m.mud; rimMat = m.rimMud; }
           else if (isWater) { topMat = m.water; rimMat = m.rimWater; }
@@ -979,50 +1203,95 @@ export class GolfRenderer3D {
           const cap = new THREE.Mesh(this.geo.cap, [rimMat, rimMat, topMat, rimMat, rimMat, rimMat]);
           cap.position.y = topY - CAP_H / 2;
           cap.receiveShadow = true;
-          if (isConv) {
-            // Texture chevrons point -Z (N); spin the cap so they point along the belt.
-            cap.rotation.y = [0, -Math.PI / 2, Math.PI, Math.PI / 2][CONV_DIR[cell.terrain]];
-          }
           col.add(cap);
+          if (isConv) {
+            // Chevrons point -Z (N) in texture space; spin the tile so they point along the strip.
+            const spin = [0, -Math.PI / 2, Math.PI, Math.PI / 2][CONV_DIR[cell.terrain]];
+            cap.rotation.y = spin;
+            const arrows = new THREE.Mesh(this.geo.overlay, m.chevrons);
+            arrows.rotation.y = spin;
+            arrows.position.y = topY + 0.004;
+            col.add(arrows);
+          }
+        }
+
+        // Wildflowers and grass tufts on open turf, kept clear of the middle of the tile
+        const isOpenTurf = cell.terrain === TERRAIN.GRASS && !(x === level.start.x && y === level.start.y);
+        if (isOpenTurf) {
+          const nTufts = 3 + Math.floor(hash2(x * 5.3, y * 2.9) * 4);
+          for (let i = 0; i < nTufts; i++) {
+            const ang = hash2(x * 7 + i, y * 3 + i * 1.7) * Math.PI * 2;
+            const rad = 0.3 + hash2(x + i * 2.3, y * 9 + i) * 0.14;
+            tufts.push({ x: pos.x + Math.cos(ang) * rad, y: pos.y, z: pos.z + Math.sin(ang) * rad, k: hash2(x * 2 + i, y * 4 + i) });
+          }
+          if (hash2(x * 1.9, y * 6.7) > 0.28) {
+            const ang = hash2(x * 4.1, y * 8.3) * Math.PI * 2;
+            const n = 2 + Math.floor(hash2(x * 8.8, y * 1.3) * 5);
+            const hue = Math.floor(hash2(x * 3.3, y * 5.5) * 5);
+            for (let i = 0; i < n; i++) {
+              const a = ang + (i - 2) * 0.36 + (hash2(x * 2 + i, y) - 0.5) * 0.2;
+              const rad = 0.31 + hash2(x + i, y + i * 3.1) * 0.14;
+              flowers.push({ x: pos.x + Math.cos(a) * rad, y: pos.y, z: pos.z + Math.sin(a) * rad, hue });
+            }
+          }
         }
 
         // Props
         if (cell.terrain === TERRAIN.WALL) {
-          const wall = new THREE.Mesh(wallGeo, m.wall);
-          wall.position.y = pos.y + 0.28;
-          wall.castShadow = true;
-          wall.receiveShadow = true;
-          col.add(wall);
+          const hedge = new THREE.Mesh(this.geo.hedge, m.hedge);
+          hedge.position.y = pos.y + 0.27;
+          hedge.castShadow = true;
+          hedge.receiveShadow = true;
+          col.add(hedge);
+          if (hash2(x * 2.7, y * 4.9) > 0.45) {
+            const ball = new THREE.Mesh(this.geo.topiary, m.hedge);
+            ball.position.y = pos.y + 0.7;
+            ball.castShadow = true;
+            col.add(ball);
+          }
         }
 
         if (cell.terrain === TERRAIN.SPRING) {
-          const base = new THREE.Mesh(this.track(new THREE.CylinderGeometry(0.32, 0.36, 0.08, 20)), m.springBase);
-          base.position.y = pos.y + 0.04;
-          col.add(base);
-          const ring = new THREE.Mesh(this.track(new THREE.TorusGeometry(0.22, 0.045, 10, 24).rotateX(Math.PI / 2)), m.springRing);
-          ring.position.y = pos.y + 0.12;
-          ring.userData.baseY = pos.y + 0.12;
-          ring.userData.phase = x * 1.3 + y * 0.7;
-          col.add(ring);
-          this.springRings.push(ring);
+          const shroom = new THREE.Group();
+          shroom.position.y = pos.y;
+          const stem = new THREE.Mesh(this.geo.stem, m.shroomStem);
+          stem.castShadow = true;
+          shroom.add(stem);
+          const cap = new THREE.Mesh(this.geo.shroom, m.shroomCap);
+          cap.position.y = 0.17;
+          cap.castShadow = true;
+          shroom.add(cap);
+          for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2 + 0.4;
+            const r = i === 0 ? 0 : 0.17;
+            const spot = new THREE.Mesh(this.geo.spot, m.shroomSpot);
+            spot.position.set(Math.cos(a) * r, 0.17 + Math.sqrt(Math.max(0, 0.09 - r * r)) * 0.72, Math.sin(a) * r);
+            shroom.add(spot);
+          }
+          shroom.userData.phase = x * 1.3 + y * 0.7;
+          col.add(shroom);
+          this.springRings.push(shroom);
         }
 
         if (cell.terrain === TERRAIN.PORTAL_A || cell.terrain === TERRAIN.PORTAL_B) {
           const isA = cell.terrain === TERRAIN.PORTAL_A;
           const pm = isA ? m.portalA : m.portalB;
-          const ring = new THREE.Mesh(this.track(new THREE.TorusGeometry(0.3, 0.05, 12, 28).rotateX(Math.PI / 2)), pm.ring);
-          ring.position.y = pos.y + 0.08;
+          const ring = new THREE.Mesh(this.geo.stoneRing, m.stone);
+          ring.position.y = pos.y + 0.04;
+          ring.castShadow = true;
           col.add(ring);
-          this.portalRings.push(ring);
 
-          const disc = new THREE.Mesh(this.track(new THREE.CircleGeometry(0.29, 24).rotateX(-Math.PI / 2)), pm.disc);
-          disc.position.y = pos.y + 0.035;
+          const base = new THREE.Mesh(this.geo.portalDisc, pm.base);
+          base.position.y = pos.y + 0.012;
+          col.add(base);
+          const disc = new THREE.Mesh(this.geo.portalDisc, pm.disc);
+          disc.position.y = pos.y + 0.02;
           disc.userData.spin = isA ? 1 : -1;
           col.add(disc);
           this.portalDiscs.push(disc);
 
           const beam = new THREE.Mesh(this.geo.beam, isA ? m.beamA : m.beamB);
-          beam.scale.set(1.35, 1.1, 1.35);
+          beam.scale.set(1.2, 0.9, 1.2);
           beam.position.y = pos.y + 0.04;
           beam.userData.phase = isA ? 0 : 2;
           col.add(beam);
@@ -1030,30 +1299,32 @@ export class GolfRenderer3D {
         }
 
         if (cell.terrain === TERRAIN.CUP) {
-          const hole = new THREE.Mesh(this.track(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 24)), m.cupHole);
+          const hole = new THREE.Mesh(this.geo.cupHole, m.cupHole);
           hole.position.y = pos.y + 0.005;
           col.add(hole);
 
-          const rimMesh = new THREE.Mesh(this.track(new THREE.RingGeometry(0.21, 0.27, 28).rotateX(-Math.PI / 2)), m.cupRim);
+          const rimMesh = new THREE.Mesh(this.geo.cupRim, m.cupRim);
           rimMesh.position.y = pos.y + 0.026;
           col.add(rimMesh);
 
-          const pole = new THREE.Mesh(this.track(new THREE.CylinderGeometry(0.022, 0.022, 1.15, 10)), m.pole);
+          const pole = new THREE.Mesh(this.geo.pole, m.pole);
           pole.position.set(0.04, pos.y + 0.58, -0.04);
           pole.castShadow = true;
           col.add(pole);
 
           const flagShape = new THREE.Shape();
           flagShape.moveTo(0, 0);
-          flagShape.lineTo(0.44, -0.12);
-          flagShape.lineTo(0, -0.26);
+          flagShape.lineTo(0.52, -0.15);
+          flagShape.lineTo(0, -0.32);
           flagShape.closePath();
           this.flagCloth = new THREE.Mesh(this.track(new THREE.ShapeGeometry(flagShape)), m.flag);
-          this.flagCloth.position.set(0.04, pos.y + 1.14, -0.04);
+          this.flagCloth.position.set(0.04, pos.y + 1.15, -0.04);
+          this.flagCloth.castShadow = true;
           col.add(this.flagCloth);
 
+          // A soft shaft of sunlight so the pin is easy to find on a small screen
           const beam = new THREE.Mesh(this.geo.beam, m.beamCup);
-          beam.scale.set(1.15, 2.1, 1.15);
+          beam.scale.set(1.5, 2.0, 1.5);
           beam.position.y = pos.y + 0.03;
           beam.userData.phase = 1;
           col.add(beam);
@@ -1062,10 +1333,51 @@ export class GolfRenderer3D {
       }
     }
 
+    // Flora is instanced; it blooms once the course has finished building.
+    if (tufts.length > 0) {
+      const mesh = this.track(new THREE.InstancedMesh(this.geo.tuft, m.tuft, tufts.length));
+      const t = THEMES[this.themeName];
+      const cA = new THREE.Color(t.turfDark);
+      const cB = new THREE.Color(t.ramp);
+      const c = new THREE.Color();
+      tufts.forEach((f, i) => {
+        dummy.position.set(f.x, f.y, f.z);
+        dummy.rotation.set((f.k - 0.5) * 0.5, f.k * 6, (f.k - 0.5) * 0.4);
+        dummy.scale.set(0.9 + f.k * 0.6, 0.9 + f.k * 1.1, 0.9 + f.k * 0.6);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        mesh.setColorAt(i, c.copy(cA).lerp(cB, f.k));
+      });
+      mesh.castShadow = true;
+      this.boardGroup.add(mesh);
+      this.flora.push(mesh);
+    }
+    if (flowers.length > 0) {
+      const mesh = this.track(new THREE.InstancedMesh(this.geo.flower, m.flower, flowers.length));
+      const palette = [0xffffff, 0xffe37a, 0xffa6c9, 0xcdb0ff, 0xf2553a].map((h) => new THREE.Color(h));
+      dummy.rotation.set(0, 0, 0);
+      flowers.forEach((f, i) => {
+        dummy.position.set(f.x, f.y + 0.035, f.z);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        mesh.setColorAt(i, palette[f.hue]);
+      });
+      this.boardGroup.add(mesh);
+      this.flora.push(mesh);
+    }
+
     this.maxElev = maxElev;
+    this.cloudBase = Math.max(level.width, level.height) / 2;
     this.introT = intro && !this.reducedMotion ? 0 : Infinity;
+    this.floraT = 1;
     if (this.introT === 0) {
       for (const col of this.columns) col.visible = false;
+      this.floraT = 0;
+    }
+    for (const f of this.flora) {
+      f.visible = this.floraT === 1;
+      f.scale.set(1, 1, 1);
     }
     this.placeBallImmediate(ballPos.x, ballPos.y, this.ballElev);
     if (this.introT === 0) this.ballPop = -0.45;
@@ -1198,21 +1510,31 @@ export class GolfRenderer3D {
       const moved = sim.endPos.x !== this.ballPos.x || sim.endPos.y !== this.ballPos.y;
       const isIdle = !moved && !sim.hazard && !sim.won;
 
-      const color = isRec ? NEON.amber : sim.won ? NEON.amber : isBad ? NEON.red : isIdle ? NEON.idle : NEON.green;
+      const color = isRec || sim.won ? PAINT.gold : isBad ? PAINT.bad : isIdle ? PAINT.idle : PAINT.good;
 
       const arrow = new THREE.Group();
-      const chevMat = new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: isIdle ? 0.3 : isRec ? 1.8 : 1.15,
-        roughness: 0.3,
-      });
-      const chev = new THREE.Mesh(this.geo.chevron, chevMat);
+      // Painted chevron with a dark keyline so it reads on turf, sand and ice alike
+      const outline = new THREE.Mesh(
+        this.geo.chevron,
+        new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: true, opacity: isIdle ? 0.25 : 0.6, depthWrite: false })
+      );
+      outline.userData.ownMaterial = true;
+      outline.scale.set(1.24, 0.5, 1.24);
+      outline.position.set(0, -0.03, 0.6);
+      arrow.add(outline);
+      const chev = new THREE.Mesh(
+        this.geo.chevron,
+        isIdle ? new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 }) : crisp(new THREE.MeshBasicMaterial({ color }))
+      );
       chev.userData.ownMaterial = true;
       chev.position.z = 0.6;
-      if (isRec) chev.scale.setScalar(1.25);
+      if (isRec) {
+        chev.scale.setScalar(1.25);
+        outline.scale.set(1.5, 0.5, 1.5);
+      }
       arrow.add(chev);
       arrow.userData.chev = chev;
+      arrow.userData.outline = outline;
 
       // Generous invisible touch target
       const hit = new THREE.Mesh(this.geo.hitArrow, new THREE.MeshBasicMaterial({ visible: false }));
@@ -1235,7 +1557,7 @@ export class GolfRenderer3D {
       if (pts.length > 0) {
         const dots = new THREE.InstancedMesh(
           this.geo.dot,
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: isRec ? 0.95 : 0.6, depthWrite: false }),
+          crisp(new THREE.MeshBasicMaterial({ color })),
           pts.length
         );
         pts.forEach((p, i) => {
@@ -1251,18 +1573,24 @@ export class GolfRenderer3D {
       if (!sim.hazard && moved) {
         const endElev = this.level.grid[sim.endPos.y][sim.endPos.x].elev;
         const ep = this.gridToWorld(sim.endPos.x, sim.endPos.y, endElev);
+        const halo = new THREE.Mesh(
+          this.geo.ring,
+          new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
+        );
+        halo.position.set(ep.x, ep.y + 0.034, ep.z);
+        halo.scale.setScalar(1.2);
+        halo.userData.phase = d.id * 0.9;
+        halo.userData.base = 1.2;
+        this.previewGroup.add(halo);
+        this.previewRings.push(halo);
+
         const ring = new THREE.Mesh(
           this.geo.ring,
-          new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: isRec || sim.won ? 1 : 0.8,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          })
+          crisp(new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }))
         );
         ring.position.set(ep.x, ep.y + 0.04, ep.z);
         ring.userData.phase = d.id * 0.9;
+        ring.userData.base = 1;
         this.previewGroup.add(ring);
         this.previewRings.push(ring);
 
@@ -1306,7 +1634,7 @@ export class GolfRenderer3D {
   sparkMaterial(colorHex) {
     let mat = this.sparkMats.get(colorHex);
     if (!mat) {
-      mat = new THREE.MeshBasicMaterial({ color: colorHex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
+      mat = new THREE.MeshBasicMaterial({ color: colorHex });
       this.sparkMats.set(colorHex, mat);
     }
     return mat;
@@ -1334,7 +1662,7 @@ export class GolfRenderer3D {
   spawnVictoryConfetti(gx, gy, elev) {
     const p = this.gridToWorld(gx, gy, elev);
     p.y += 0.3;
-    const colors = [NEON.magenta, NEON.amber, NEON.green, NEON.cyan, NEON.violet, 0xffffff];
+    const colors = [0xf5c542, 0xfffaf0, 0xffa6c9, 0x9fe27a, 0x9fd2f5, 0xd9372c];
     for (const c of colors) {
       this.spawnParticles(p, c, 9, 3.2);
     }
@@ -1353,7 +1681,7 @@ export class GolfRenderer3D {
     const half = (span * Math.SQRT2) / 2;
     const halfW = half + 0.12;
     const up = half * CAM_ELEV_SIN + (maxElev * ELEV_STEP + 1.3) * CAM_ELEV_COS;
-    const down = half * CAM_ELEV_SIN + (BASE_THICKNESS + 0.9) * CAM_ELEV_COS;
+    const down = half * CAM_ELEV_SIN + (BASE_THICKNESS + 0.7) * CAM_ELEV_COS;
 
     const worldPerPx = Math.max((2 * halfW) / freeW, (up + down) / freeH) * 1.03;
     this.frustumSize = worldPerPx * h;
@@ -1375,19 +1703,22 @@ export class GolfRenderer3D {
       this.composer.setPixelRatio(pr);
       this.composer.setSize(w, h);
     }
+    if (this.paintPass) {
+      const pu = this.paintPass.uniforms;
+      pu.uTexel.value.set(1 / (w * pr), 1 / (h * pr));
+      // Brush size follows the screen, so phones and desktops get the same touch.
+      pu.uSpread.value = Math.max(0.6, (Math.min(w, h) / 520) * pr * 0.46);
+      pu.uAspect.value = w / h;
+    }
 
     // Backdrop: horizon through the middle of the free region, sun rising behind the peak.
     const u = this.backdropUniforms;
     u.uRes.value.set(w * pr, h * pr);
-    u.uScale.value = pr;
     const freeCy = ins.bottom + freeH / 2; // CSS px from the bottom
-    const freeCx = ins.left + freeW / 2;
-    const horizon = freeCy - freeH * 0.04;
-    const sunR = Math.min(freeW, freeH * 0.8) * 0.3;
-    u.uHorizon.value = horizon / h;
-    u.uSun.value.set(freeCx * pr, (horizon + sunR * 0.72) * pr);
-    u.uSunR.value = sunR * pr;
-    this.moteMat.size = 5 * pr;
+    u.uHorizon.value = (freeCy - freeH * 0.02) / h;
+    // Sun high over the far shoulder of the course
+    u.uSun.value.set((ins.left + freeW * 0.8) * pr, (ins.bottom + freeH * 0.84) * pr);
+    this.moteMat.size = 4.5 * pr;
   }
 
   resize() {
@@ -1517,31 +1848,44 @@ export class GolfRenderer3D {
       this.ballShadow.scale.setScalar(Math.max(0.001, u));
     }
 
-    // Scrolling water, belts, portals, flag, beacons
-    if (this.mats && !this.reducedMotion) {
-      const wOff = elapsed * 0.09;
-      this.mats.water.map.offset.set(wOff, wOff * 0.6);
-      this.mats.water.emissiveMap.offset.set(wOff, wOff * 0.6);
-      const cOff = (elapsed * 0.9) % 1;
-      this.mats.conveyor.map.offset.y = -cOff;
-      this.mats.conveyor.emissiveMap.offset.y = -cOff;
+    // Flora blooms after the course has built
+    if (this.floraT < 1 && this.introT === Infinity) {
+      this.floraT = Math.min(1, this.floraT + dt * 2.6);
+      const u = this.floraT;
+      const e = 1 + 2.70158 * Math.pow(u - 1, 3) + 1.70158 * Math.pow(u - 1, 2);
+      for (const f of this.flora) {
+        f.visible = true;
+        f.scale.y = Math.max(0.001, e);
+      }
     }
-    for (const pr of this.portalRings) {
-      pr.scale.setScalar(1 + Math.sin(elapsed * 3.2) * 0.05);
+
+    // Drifting water, boost chevrons, portal swirls, mushrooms, flag, light shafts
+    if (this.mats && !this.reducedMotion) {
+      this.mats.water.map.offset.set(Math.sin(elapsed * 0.7) * 0.025, Math.cos(elapsed * 0.5) * 0.015);
+      this.mats.chevrons.map.offset.y = -((elapsed * 0.8) % 1);
     }
     for (const pd of this.portalDiscs) {
-      pd.rotation.y = elapsed * 2.4 * pd.userData.spin;
+      pd.rotation.y = elapsed * 1.6 * pd.userData.spin;
     }
     for (const sr of this.springRings) {
-      sr.position.y = sr.userData.baseY + Math.abs(Math.sin(elapsed * 2.6 + sr.userData.phase)) * 0.07;
+      const k = Math.sin(elapsed * 2.4 + sr.userData.phase);
+      sr.scale.set(1 - k * 0.035, 1 + k * 0.06, 1 - k * 0.035);
     }
     for (const b of this.beams) {
-      b.material.opacity = 0.34 + 0.16 * Math.sin(elapsed * 2.1 + b.userData.phase);
-      b.rotation.y = elapsed * 0.4;
+      b.material.opacity = b.material.userData.baseOpacity * (0.8 + 0.2 * Math.sin(elapsed * 1.6 + b.userData.phase));
     }
     if (this.flagCloth) {
-      this.flagCloth.rotation.y = Math.sin(elapsed * 4.5) * 0.2;
+      this.flagCloth.rotation.y = Math.sin(elapsed * 3.2) * 0.22 + Math.sin(elapsed * 7.1) * 0.05;
     }
+
+    // Clouds circle slowly below the course
+    const base = this.cloudBase || 3;
+    this.clouds.children.forEach((cloud, i) => {
+      const sd = this.cloudSeeds[i];
+      const a = sd.ang + (this.reducedMotion ? 0 : elapsed * sd.speed);
+      cloud.position.set(Math.cos(a) * (base + sd.rad), sd.y, Math.sin(a) * (base + sd.rad));
+      cloud.rotation.y = -a;
+    });
 
     // Motes drift upward and wrap
     const mp = this.motes.geometry.attributes.position;
@@ -1556,10 +1900,13 @@ export class GolfRenderer3D {
     // Pulse chevrons and landing rings
     for (const child of this.arrowGroup.children) {
       const chev = child.userData.chev;
-      if (chev) chev.position.z = 0.6 + (Math.sin(elapsed * 5.2 + child.userData.dirId) * 0.5 + 0.5) * 0.09;
+      if (chev) {
+        chev.position.z = 0.6 + (Math.sin(elapsed * 5.2 + child.userData.dirId) * 0.5 + 0.5) * 0.09;
+        child.userData.outline.position.z = chev.position.z;
+      }
     }
     for (const ring of this.previewRings) {
-      ring.scale.setScalar(1 + (Math.sin(elapsed * 4.2 + ring.userData.phase) * 0.5 + 0.5) * 0.22);
+      ring.scale.setScalar(ring.userData.base * (1 + (Math.sin(elapsed * 4.2 + ring.userData.phase) * 0.5 + 0.5) * 0.2));
     }
 
     // Shot animation
@@ -1664,8 +2011,8 @@ export class GolfRenderer3D {
       if (!half && !q.firedEvents.has(`tp-${q.index}`)) {
         q.firedEvents.add(`tp-${q.index}`);
         this.trailHistory.length = 0;
-        this.spawnParticles(p0, NEON.magenta, 10, 2.0);
-        this.spawnParticles(p1, NEON.cyan, 12, 2.2);
+        this.spawnParticles(p0, 0xcffff6, 10, 2.0);
+        this.spawnParticles(p1, 0xfff0d0, 12, 2.2);
         if (q.onEvent) q.onEvent('portal');
       }
     } else if (seg.type === 'sink') {
@@ -1690,7 +2037,7 @@ export class GolfRenderer3D {
 
       // Per-segment arrival feedback
       if (seg.type === 'spring') {
-        this.spawnParticles(p0, NEON.amber, 8, 1.8);
+        this.spawnParticles(p0, 0xfffaf0, 8, 1.8);
         if (q.onEvent) q.onEvent('spring');
       }
       if (seg.type === 'slide' && !q.firedEvents.has('ice')) {
@@ -1707,7 +2054,7 @@ export class GolfRenderer3D {
 
         if (res.hazard === 'water' || res.hazard === 'void') {
           this.shake = 0.5;
-          this.spawnParticles(this.ballGroup.position, res.hazard === 'water' ? NEON.cyan : NEON.violet, 18, 2.6);
+          this.spawnParticles(this.ballGroup.position, res.hazard === 'water' ? 0xd8f3ff : 0xffffff, 18, 2.6);
           if (q.onEvent) q.onEvent('water');
           this.placeBallImmediate(res.endPos.x, res.endPos.y, endTile.elev);
           this.ballPop = 0; // respawn pop
@@ -1720,7 +2067,7 @@ export class GolfRenderer3D {
           this.ballElev = endTile.elev;
         } else {
           if (res.events.includes('sand_stop') || res.stuckInSand) {
-            this.spawnParticles(this.ballGroup.position, 0xffcf66, 12, 1.8);
+            this.spawnParticles(this.ballGroup.position, 0xf5e4ae, 12, 1.8);
             if (q.onEvent) q.onEvent('sand');
           }
           this.placeBallImmediate(res.endPos.x, res.endPos.y, endTile.elev);

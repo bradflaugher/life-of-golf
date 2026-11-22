@@ -1,11 +1,11 @@
 {
   "name": "Life of Golf",
   "short_name": "Life of Golf",
-  "description": "An endless neon golf puzzle: play shot cards across floating isometric courses, with an on-device AI caddie.",
+  "description": "An endless golf puzzle on hand-painted meadow courses: play shot cards to find the line to the cup, with an on-device AI caddie.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#05061a",
-  "theme_color": "#05061a",
+  "background_color": "#2a0f08",
+  "theme_color": "#3b1710",
   "icons": [
     {
       "src": "./favicon.svg",

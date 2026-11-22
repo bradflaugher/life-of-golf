@@ -80,7 +80,7 @@ export const DIFFICULTY_PRESETS = {
   classic: {
     id: 'classic',
     label: 'Classic',
-    subtitle: 'Alpine slopes · ice & bunkers',
+    subtitle: 'Rolling greens · ice & bunkers',
     size: 6,
     maxElev: 2,
     cardCount: 5,
@@ -102,7 +102,7 @@ export const DIFFICULTY_PRESETS = {
   tour: {
     id: 'tour',
     label: 'Tour',
-    subtitle: 'Wind strips · springs & ridges',
+    subtitle: 'Boardwalks · toadstools & ridges',
     size: 7,
     maxElev: 2,
     cardCount: 5,
@@ -124,7 +124,7 @@ export const DIFFICULTY_PRESETS = {
   championship: {
     id: 'championship',
     label: 'Championship',
-    subtitle: '3-tier peaks · portals & backspin',
+    subtitle: 'Three-tier hills · stone rings & backspin',
     size: 8,
     maxElev: 3,
     cardCount: 6,

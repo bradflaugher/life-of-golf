@@ -7,6 +7,7 @@ const PATHS = {
   caddie: '<rect x="7" y="7" width="10" height="10" rx="1.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M10 3.5V7M14 3.5V7M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5"/>',
   rotate: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20.5 3.5v5h-5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3L7 7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"/>',
+  sunset: '<path d="M5 17a7 7 0 0 1 14 0"/><path d="M2.5 17h19M6 20.5h12M12 4v3M4.6 9.6l1.8 1.8M19.4 9.6l-1.8 1.8"/>',
   moon: '<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.2 8.2 0 1 0 20 14.2z"/>',
   sound: '<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
   mute: '<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/>',
@@ -25,9 +26,29 @@ export function icon(name, cls = '') {
   return `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
 
-/** Fill every `[data-icon]` placeholder under `root` with its SVG. */
+/** A laurel wreath, open at the top; `inner` is drawn in the middle (e.g. a pin flag). */
+export function laurel(inner = '') {
+  let leaves = '';
+  for (let i = 0; i < 9; i++) {
+    const deg = 100 + i * 17;
+    const a = (deg * Math.PI) / 180;
+    const x = 60 + Math.cos(a) * 44;
+    const y = 54 + Math.sin(a) * 44;
+    const size = 1 - i * 0.045;
+    leaves += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(9.5 * size).toFixed(1)}" ry="${(3.8 * size).toFixed(1)}" transform="rotate(${deg + 62} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+  }
+  const flag = inner === 'flag'
+    ? '<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M56 78V30"/><path d="M56 31l22 8-22 9z" fill="currentColor"/><path d="M44 80h26"/></g>'
+    : '';
+  return `<svg viewBox="0 0 120 104" fill="currentColor" aria-hidden="true"><g>${leaves}</g><g transform="translate(120 0) scale(-1 1)">${leaves}</g><path d="M52 99q8-5 16 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>${flag}</svg>`;
+}
+
+/** Fill every `[data-icon]` and `[data-laurel]` placeholder under `root` with its SVG. */
 export function hydrateIcons(root = document) {
   root.querySelectorAll('[data-icon]').forEach((el) => {
     el.innerHTML = icon(el.dataset.icon);
+  });
+  root.querySelectorAll('[data-laurel]').forEach((el) => {
+    el.innerHTML = laurel(el.dataset.laurel);
   });
 }
