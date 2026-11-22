@@ -7,6 +7,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Pass } from 'three/addons/postprocessing/Pass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {
   DIRS,
@@ -20,7 +22,12 @@ const TILE_SIZE = 1.0;
 const ELEV_STEP = 0.42;
 const BASE_THICKNESS = 0.65;
 const CAP_H = 0.1;
-const BALL_R = 0.18;
+const BALL_R = 0.2;
+
+// Render layers. The land is painted; the game pieces are rendered realistically and left unpainted.
+const LAYER_WORLD = 0; // terrain, props, backdrop: goes through the paint filter
+const LAYER_PIECES = 1; // ball, pin, flag, aim guides: physically shaded, drawn sharp over the finished painting
+const LAYER_FX = 2; // soft see-through effects: painted, but never hide a game piece
 const CAM_RADIUS = 16;
 const CAM_Y = 12.2;
 const CAM_ELEV_SIN = CAM_Y / Math.hypot(CAM_RADIUS, CAM_Y);
@@ -153,14 +160,54 @@ function makeToonRamp() {
   return tex;
 }
 
-// Things the player has to read at a glance (ball, pin, aim guides) are kept out of the paint filter.
-// They write alpha 0.5 with blending off: the colour lands untouched and the filter reads alpha as a mask.
-function crisp(mat) {
-  mat.transparent = true;
-  mat.opacity = 0.5;
-  mat.blending = THREE.NoBlending;
-  mat.depthWrite = true;
-  return mat;
+// Tangent-space normal map of golf-ball dimples, built from a height field of staggered dots.
+function makeDimpleNormalMap() {
+  const w = 256;
+  const h = 128;
+  const height = new Float32Array(w * h);
+  const cols = 28;
+  const rows = 14;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = (y / h) * rows;
+      const row = Math.floor(v);
+      const u = (x / w) * cols + (row % 2) * 0.5;
+      const dx = (u - Math.floor(u) - 0.5) * 1.15;
+      const dy = v - row - 0.5;
+      const d = Math.hypot(dx, dy);
+      height[y * w + x] = d < 0.4 ? -Math.cos((d / 0.4) * Math.PI * 0.5) : 0;
+    }
+  }
+  const data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const l = height[y * w + ((x + w - 1) % w)];
+      const r = height[y * w + ((x + 1) % w)];
+      const t = height[Math.max(0, y - 1) * w + x];
+      const b = height[Math.min(h - 1, y + 1) * w + x];
+      const nx = (l - r) * 2.2;
+      const ny = (b - t) * 2.2;
+      const len = Math.hypot(nx, ny, 1);
+      const i = (y * w + x) * 4;
+      data[i] = ((nx / len) * 0.5 + 0.5) * 255;
+      data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+      data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function onLayer(obj, layer) {
+  obj.traverse((o) => o.layers.set(layer));
+  return obj;
 }
 
 // A painted material: `paint` draws the colour map.
@@ -392,13 +439,57 @@ const PaintShader = {
       // canvas tooth
       col *= 0.965 + 0.07 * noise(g * 420.0);
       // The alpha channel says how much brush each pixel takes:
-      //   ~0.25 backdrop: fully painted   ~0.5 ball, pin, aim guides: untouched   1.0 the course: lightly brushed
-      float amount = src.a < 0.38 ? 1.0 : (src.a < 0.75 ? 0.0 : uBoard);
+      //   ~0.25 backdrop: fully painted   1.0 the course: lightly brushed
+      // (game pieces are not in this image at all: PiecesPass draws them afterwards)
+      float amount = mix(1.0, uBoard, smoothstep(0.4, 0.8, src.a));
       col = mix(src.rgb, col, amount);
       gl_FragColor = vec4(col, 1.0);
     }
   `,
 };
+
+// Draws the game pieces (ball, pin, aim guides) over the finished painting, untouched by paint or bloom.
+// The composer's buffers do not share depth, so the land is first laid down depth-only to hide pieces behind it.
+class PiecesPass extends Pass {
+  constructor(owner) {
+    super();
+    this.owner = owner;
+    this.scene = owner.scene;
+    this.camera = owner.camera;
+    this.needsSwap = false;
+    this.depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
+  }
+
+  render(renderer, writeBuffer, readBuffer) {
+    const autoClear = renderer.autoClear;
+    const shadowAuto = renderer.shadowMap.autoUpdate;
+    const mask = this.camera.layers.mask;
+    renderer.autoClear = false;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.setRenderTarget(readBuffer);
+    renderer.clearDepth();
+
+    // the cup is sunk below the turf, so its tile's cap must not hide it
+    const cupCap = this.owner.cupCap;
+    if (cupCap) cupCap.visible = false;
+    this.camera.layers.set(LAYER_WORLD);
+    this.scene.overrideMaterial = this.depthOnly;
+    renderer.render(this.scene, this.camera);
+    this.scene.overrideMaterial = null;
+    if (cupCap) cupCap.visible = true;
+
+    this.camera.layers.set(LAYER_PIECES);
+    renderer.render(this.scene, this.camera);
+
+    this.camera.layers.mask = mask;
+    renderer.autoClear = autoClear;
+    renderer.shadowMap.autoUpdate = shadowAuto;
+  }
+
+  dispose() {
+    this.depthOnly.dispose();
+  }
+}
 
 export class GolfRenderer3D {
   constructor(canvas, { onDirectionPick, onSwipeDirection, theme = 'light', quality = 'auto' } = {}) {
@@ -423,6 +514,10 @@ export class GolfRenderer3D {
     this.frameCount = 0;
 
     this.scene = new THREE.Scene();
+    // Image-based light for the physically shaded pieces (ball, pin, cup). Painted materials ignore it.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
 
     // Orthographic isometric camera
     this.frustumSize = 10;
@@ -452,6 +547,8 @@ export class GolfRenderer3D {
     this.rim = new THREE.DirectionalLight(0xff4fd0, 0.9);
     this.rim.position.set(9, 6, -6);
     this.scene.add(this.rim);
+    // lights are layer-tested like any object: let them reach the game-piece layer too
+    for (const light of [this.hemi, this.sun, this.rim]) light.layers.enableAll();
 
     // Backdrop (drawn first, ignores depth)
     this.backdropUniforms = {
@@ -514,13 +611,16 @@ export class GolfRenderer3D {
       spot: new THREE.SphereGeometry(0.05, 8, 6).scale(1, 0.5, 1),
       stoneRing: new THREE.TorusGeometry(0.31, 0.075, 8, 20).rotateX(Math.PI / 2).scale(1, 0.7, 1),
       portalDisc: new THREE.CircleGeometry(0.25, 24).rotateX(-Math.PI / 2),
-      cupHole: new THREE.CylinderGeometry(0.22, 0.22, 0.04, 24),
-      cupRim: new THREE.RingGeometry(0.21, 0.265, 28).rotateX(-Math.PI / 2),
-      pole: new THREE.CylinderGeometry(0.026, 0.026, 1.15, 8),
+      pole: new THREE.CylinderGeometry(0.024, 0.028, 1.42, 16),
+      finial: new THREE.SphereGeometry(0.036, 14, 10),
+      cupWall: new THREE.CylinderGeometry(0.2, 0.2, 0.1, 28, 1, true),
+      cupFloor: new THREE.CircleGeometry(0.2, 28).rotateX(-Math.PI / 2),
+      cupLip: new THREE.TorusGeometry(0.207, 0.018, 8, 32).rotateX(Math.PI / 2),
+      flag: new THREE.PlaneGeometry(0.66, 0.42, 18, 8).translate(0.33, 0, 0),
       puff: new THREE.SphereGeometry(1, 14, 10),
       spark: new THREE.SphereGeometry(0.05, 6, 6),
-      dot: new THREE.SphereGeometry(0.055, 8, 6),
-      ring: new THREE.RingGeometry(0.19, 0.28, 28).rotateX(-Math.PI / 2),
+      dot: new THREE.SphereGeometry(0.05, 10, 8),
+      ring: new THREE.RingGeometry(0.2, 0.3, 32).rotateX(-Math.PI / 2),
       ringCore: new THREE.CircleGeometry(0.2, 24).rotateX(-Math.PI / 2),
       hitArrow: new THREE.BoxGeometry(0.92, 0.6, 0.98),
       hitTile: new THREE.BoxGeometry(0.96, 0.3, 0.96),
@@ -532,19 +632,41 @@ export class GolfRenderer3D {
     // Ball
     this.ballGroup = new THREE.Group();
     this.ballMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(BALL_R, 28, 24),
-      crisp(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.toonRamp, emissive: 0x5a6670, emissiveIntensity: 0.5 }))
+      new THREE.SphereGeometry(BALL_R, 48, 32),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        roughness: 0.3,
+        metalness: 0,
+        clearcoat: 0.7,
+        clearcoatRoughness: 0.18,
+        normalMap: makeDimpleNormalMap(),
+        normalScale: new THREE.Vector2(0.55, 0.55),
+        envMap: this.envMap,
+        envMapIntensity: 0.9,
+      })
     );
-    this.ballMesh.castShadow = true;
     this.ballGroup.add(this.ballMesh);
+    onLayer(this.ballGroup, LAYER_PIECES);
 
     // Ground shadow blob under the ball (reads height during chips)
-    const shadowGeo = new THREE.CircleGeometry(0.19, 20);
+    const shadowGeo = new THREE.PlaneGeometry(0.62, 0.62);
     shadowGeo.rotateX(-Math.PI / 2);
     this.ballShadow = new THREE.Mesh(
       shadowGeo,
-      new THREE.MeshBasicMaterial({ color: 0x1d3b2a, transparent: true, opacity: 0.32, depthWrite: false })
+      new THREE.MeshBasicMaterial({
+        map: makeCanvasTex(64, (ctx, s) => {
+          const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+          g.addColorStop(0, 'rgba(14,30,18,0.7)');
+          g.addColorStop(0.45, 'rgba(14,30,18,0.3)');
+          g.addColorStop(1, 'rgba(14,30,18,0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, s, s);
+        }),
+        transparent: true,
+        depthWrite: false,
+      })
     );
+    this.ballShadow.layers.set(LAYER_FX);
     this.islandGroup.add(this.ballShadow);
     this.islandGroup.add(this.ballGroup);
 
@@ -556,12 +678,14 @@ export class GolfRenderer3D {
     for (let i = 0; i < 12; i++) {
       const m = new THREE.Mesh(trailGeo, this.trailMat);
       m.visible = false;
+      m.layers.set(LAYER_FX);
       this.fxGroup.add(m);
       this.trail.push(m);
     }
 
     // Drifting motes around the island
     this.motes = this.makeMotes();
+    this.motes.layers.set(LAYER_FX);
     this.islandGroup.add(this.motes);
 
     // Cloud puffs drifting around and below the island
@@ -705,6 +829,7 @@ export class GolfRenderer3D {
       this.paintPass = new ShaderPass(PaintShader);
       this.composer.addPass(this.paintPass);
       this.composer.addPass(this.bloomPass);
+      this.composer.addPass(new PiecesPass(this));
       this.composer.addPass(new OutputPass());
     } else {
       this.renderer.setPixelRatio(Math.min(dpr, 1.5));
@@ -990,10 +1115,36 @@ export class GolfRenderer3D {
     m.shroomCap = toon({ color: 0xe2503a });
     m.shroomSpot = toon({ color: 0xfffaf0 });
 
-    m.cupHole = crisp(new THREE.MeshBasicMaterial({ color: 0x17120e }));
-    m.cupRim = crisp(new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-    m.pole = crisp(toon({ color: 0xfdfaf2 }));
-    m.flag = crisp(toon({ color: 0xd9372c, side: THREE.DoubleSide }));
+    // The pin and cup are real objects in a painted world: physically shaded, with reflections.
+    const std = (o) => new THREE.MeshStandardMaterial({ envMap: this.envMap, ...o });
+    m.cupWall = std({ color: 0xe9e6dc, roughness: 0.55, metalness: 0.05, side: THREE.BackSide, envMapIntensity: 0.4 });
+    m.cupFloor = new THREE.MeshBasicMaterial({ color: 0x0c0a08 });
+    m.cupLip = std({ color: 0xf7f5ee, roughness: 0.35, metalness: 0.1, envMapIntensity: 0.8 });
+    m.pole = new THREE.MeshPhysicalMaterial({ color: 0xfbfaf4, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.2, envMap: this.envMap, envMapIntensity: 0.9 });
+    m.metal = std({ color: 0xd8d8d2, roughness: 0.22, metalness: 1, envMapIntensity: 1.2 });
+    m.flag = std({
+      map: makeCanvasTex(128, (ctx, s) => {
+        ctx.fillStyle = '#e8232d';
+        ctx.fillRect(0, 0, s, s);
+        // woven nylon: a faint weave and a stitched hem
+        ctx.globalAlpha = 0.07;
+        ctx.fillStyle = '#000';
+        for (let i = 0; i < s; i += 2) ctx.fillRect(i, 0, 1, s);
+        for (let i = 0; i < s; i += 2) ctx.fillRect(0, i, s, 1);
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = '#5a0a10';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(3, 3, s - 6, s - 6);
+        ctx.globalAlpha = 1;
+      }),
+      roughness: 0.7,
+      metalness: 0,
+      side: THREE.DoubleSide,
+      envMapIntensity: 0.4,
+      // cloth passes light: keep the shaded side a rich red rather than letting it go black
+      emissive: 0xb0121c,
+      emissiveIntensity: 0.45,
+    });
 
     const beamTex = makeCanvasTex(64, (ctx, s) => {
       const g = ctx.createLinearGradient(0, 0, 0, s);
@@ -1138,6 +1289,8 @@ export class GolfRenderer3D {
     this.beams = [];
     this.flora = [];
     this.flagCloth = null;
+    this.cupCap = null;
+    this.cupDisc = null;
     this.clearArrows();
 
     const m = this.mats;
@@ -1204,6 +1357,7 @@ export class GolfRenderer3D {
           cap.position.y = topY - CAP_H / 2;
           cap.receiveShadow = true;
           col.add(cap);
+          if (cell.terrain === TERRAIN.CUP) this.cupCap = cap;
           if (isConv) {
             // Chevrons point -Z (N) in texture space; spin the tile so they point along the strip.
             const spin = [0, -Math.PI / 2, Math.PI, Math.PI / 2][CONV_DIR[cell.terrain]];
@@ -1294,39 +1448,50 @@ export class GolfRenderer3D {
           beam.scale.set(1.2, 0.9, 1.2);
           beam.position.y = pos.y + 0.04;
           beam.userData.phase = isA ? 0 : 2;
+          beam.layers.set(LAYER_FX);
           col.add(beam);
           this.beams.push(beam);
         }
 
         if (cell.terrain === TERRAIN.CUP) {
-          const hole = new THREE.Mesh(this.geo.cupHole, m.cupHole);
-          hole.position.y = pos.y + 0.005;
-          col.add(hole);
-
-          const rimMesh = new THREE.Mesh(this.geo.cupRim, m.cupRim);
-          rimMesh.position.y = pos.y + 0.026;
-          col.add(rimMesh);
+          // The pin is a real object set into the painting: a sunk cup liner, a fibreglass stick, a cloth flag.
+          const pin = new THREE.Group();
+          const wall = new THREE.Mesh(this.geo.cupWall, m.cupWall);
+          // the liner sits inside the turf cap, which the pieces pass hides for this one tile
+          wall.position.y = pos.y - 0.05;
+          pin.add(wall);
+          const floor = new THREE.Mesh(this.geo.cupFloor, m.cupFloor);
+          floor.position.y = pos.y - 0.096;
+          pin.add(floor);
+          // without the composer there is no depth trick to see into the cup: fall back to a dark disc
+          this.cupDisc = new THREE.Mesh(this.geo.cupFloor, m.cupFloor);
+          this.cupDisc.position.y = pos.y + 0.006;
+          pin.add(this.cupDisc);
+          const lip = new THREE.Mesh(this.geo.cupLip, m.cupLip);
+          lip.position.y = pos.y + 0.008;
+          pin.add(lip);
 
           const pole = new THREE.Mesh(this.geo.pole, m.pole);
-          pole.position.set(0.04, pos.y + 0.58, -0.04);
-          pole.castShadow = true;
-          col.add(pole);
+          pole.position.y = pos.y + 0.62;
+          pin.add(pole);
+          const finial = new THREE.Mesh(this.geo.finial, m.metal);
+          finial.position.y = pos.y + 1.34;
+          pin.add(finial);
 
-          const flagShape = new THREE.Shape();
-          flagShape.moveTo(0, 0);
-          flagShape.lineTo(0.52, -0.15);
-          flagShape.lineTo(0, -0.32);
-          flagShape.closePath();
-          this.flagCloth = new THREE.Mesh(this.track(new THREE.ShapeGeometry(flagShape)), m.flag);
-          this.flagCloth.position.set(0.04, pos.y + 1.15, -0.04);
-          this.flagCloth.castShadow = true;
-          col.add(this.flagCloth);
+          // cloth: its own geometry, because the vertices are waved every frame
+          const flagGeo = this.track(this.geo.flag.clone());
+          flagGeo.userData.rest = flagGeo.attributes.position.array.slice();
+          this.flagCloth = new THREE.Mesh(flagGeo, m.flag);
+          this.flagCloth.position.set(0.014, pos.y + 1.1, 0);
+          pin.add(this.flagCloth);
+          col.add(onLayer(pin, LAYER_PIECES));
 
           // A soft shaft of sunlight so the pin is easy to find on a small screen
           const beam = new THREE.Mesh(this.geo.beam, m.beamCup);
           beam.scale.set(1.5, 2.0, 1.5);
           beam.position.y = pos.y + 0.03;
           beam.userData.phase = 1;
+          beam.layers.set(LAYER_FX);
           col.add(beam);
           this.beams.push(beam);
         }
@@ -1516,25 +1681,27 @@ export class GolfRenderer3D {
       // Painted chevron with a dark keyline so it reads on turf, sand and ice alike
       const outline = new THREE.Mesh(
         this.geo.chevron,
-        new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: true, opacity: isIdle ? 0.25 : 0.6, depthWrite: false })
+        new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: isIdle, opacity: isIdle ? 0.3 : 1 })
       );
       outline.userData.ownMaterial = true;
-      outline.scale.set(1.24, 0.5, 1.24);
-      outline.position.set(0, -0.03, 0.6);
+      outline.scale.set(1.2, 0.5, 1.2);
+      outline.position.set(0, -0.035, 0.6);
       arrow.add(outline);
       const chev = new THREE.Mesh(
         this.geo.chevron,
-        isIdle ? new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 }) : crisp(new THREE.MeshBasicMaterial({ color }))
+        new THREE.MeshBasicMaterial({ color, transparent: isIdle, opacity: isIdle ? 0.6 : 1 })
       );
       chev.userData.ownMaterial = true;
       chev.position.z = 0.6;
       if (isRec) {
         chev.scale.setScalar(1.25);
-        outline.scale.set(1.5, 0.5, 1.5);
+        outline.scale.set(1.45, 0.5, 1.45);
       }
       arrow.add(chev);
       arrow.userData.chev = chev;
       arrow.userData.outline = outline;
+      chev.layers.set(LAYER_PIECES);
+      outline.layers.set(LAYER_PIECES);
 
       // Generous invisible touch target
       const hit = new THREE.Mesh(this.geo.hitArrow, new THREE.MeshBasicMaterial({ visible: false }));
@@ -1557,7 +1724,7 @@ export class GolfRenderer3D {
       if (pts.length > 0) {
         const dots = new THREE.InstancedMesh(
           this.geo.dot,
-          crisp(new THREE.MeshBasicMaterial({ color })),
+          new THREE.MeshBasicMaterial({ color }),
           pts.length
         );
         pts.forEach((p, i) => {
@@ -1566,6 +1733,7 @@ export class GolfRenderer3D {
           dots.setMatrixAt(i, dummy.matrix);
         });
         dots.instanceMatrix.needsUpdate = true;
+        dots.layers.set(LAYER_PIECES);
         this.previewGroup.add(dots);
       }
 
@@ -1575,22 +1743,24 @@ export class GolfRenderer3D {
         const ep = this.gridToWorld(sim.endPos.x, sim.endPos.y, endElev);
         const halo = new THREE.Mesh(
           this.geo.ring,
-          new THREE.MeshBasicMaterial({ color: PAINT.outline, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
+          new THREE.MeshBasicMaterial({ color: PAINT.outline, side: THREE.DoubleSide })
         );
         halo.position.set(ep.x, ep.y + 0.034, ep.z);
-        halo.scale.setScalar(1.2);
+        halo.scale.setScalar(1.14);
         halo.userData.phase = d.id * 0.9;
-        halo.userData.base = 1.2;
+        halo.userData.base = 1.14;
+        halo.layers.set(LAYER_PIECES);
         this.previewGroup.add(halo);
         this.previewRings.push(halo);
 
         const ring = new THREE.Mesh(
           this.geo.ring,
-          crisp(new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }))
+          new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
         );
         ring.position.set(ep.x, ep.y + 0.04, ep.z);
         ring.userData.phase = d.id * 0.9;
         ring.userData.base = 1;
+        ring.layers.set(LAYER_PIECES);
         this.previewGroup.add(ring);
         this.previewRings.push(ring);
 
@@ -1654,6 +1824,7 @@ export class GolfRenderer3D {
         life: 0.55 + Math.random() * 0.4,
         age: 0,
       };
+      m.layers.set(LAYER_PIECES);
       this.fxGroup.add(m);
       this.particles.push(m);
     }
@@ -1680,7 +1851,7 @@ export class GolfRenderer3D {
     const maxElev = this.maxElev || 0;
     const half = (span * Math.SQRT2) / 2;
     const halfW = half + 0.12;
-    const up = half * CAM_ELEV_SIN + (maxElev * ELEV_STEP + 1.3) * CAM_ELEV_COS;
+    const up = half * CAM_ELEV_SIN + (maxElev * ELEV_STEP + 1.5) * CAM_ELEV_COS;
     const down = half * CAM_ELEV_SIN + (BASE_THICKNESS + 0.7) * CAM_ELEV_COS;
 
     const worldPerPx = Math.max((2 * halfW) / freeW, (up + down) / freeH) * 1.03;
@@ -1875,7 +2046,22 @@ export class GolfRenderer3D {
       b.material.opacity = b.material.userData.baseOpacity * (0.8 + 0.2 * Math.sin(elapsed * 1.6 + b.userData.phase));
     }
     if (this.flagCloth) {
-      this.flagCloth.rotation.y = Math.sin(elapsed * 3.2) * 0.22 + Math.sin(elapsed * 7.1) * 0.05;
+      // Cloth in a light breeze: travelling waves that grow away from the stick, lit by recomputed normals.
+      const geo = this.flagCloth.geometry;
+      const rest = geo.userData.rest;
+      const posAttr = geo.attributes.position;
+      const tt = this.reducedMotion ? 0 : elapsed;
+      for (let i = 0; i < posAttr.count; i++) {
+        const x = rest[i * 3];
+        const y = rest[i * 3 + 1];
+        const k = x / 0.66;
+        const wave = Math.sin(x * 15 - tt * 5.2 + y * 3) * 0.035 + Math.sin(x * 27 - tt * 8.1) * 0.012;
+        posAttr.setXYZ(i, x - k * k * 0.02, y - k * k * 0.035 + Math.sin(x * 11 - tt * 4) * 0.008 * k, wave * k);
+      }
+      posAttr.needsUpdate = true;
+      geo.computeVertexNormals();
+      // stream the flag downwind, side-on enough to the camera to read
+      this.flagCloth.rotation.y = Math.PI * 0.62 - this.orbitAngle + Math.sin(tt * 0.9) * 0.12;
     }
 
     // Clouds circle slowly below the course
@@ -1914,6 +2100,12 @@ export class GolfRenderer3D {
       this.stepAnimation(dt);
     }
 
+    // The ball turns as it travels, so the dimples catch the light
+    if (this.animQueue) {
+      this.ballMesh.rotation.x += dt * 9;
+      this.ballMesh.rotation.z += dt * 4;
+    }
+
     // Comet trail
     if (this.animQueue) {
       this.trailHistory.unshift(this.ballGroup.position.clone());
@@ -1950,8 +2142,16 @@ export class GolfRenderer3D {
       p.scale.setScalar(Math.max(0.01, sc));
     }
 
-    if (this.composer) this.composer.render(dt);
-    else this.renderer.render(this.scene, this.camera);
+    if (this.cupDisc) this.cupDisc.visible = !this.composer;
+    if (this.composer) {
+      // painted image first (land + soft effects); PiecesPass adds the sharp layer
+      this.camera.layers.set(LAYER_WORLD);
+      this.camera.layers.enable(LAYER_FX);
+      this.composer.render(dt);
+    } else {
+      this.camera.layers.enableAll();
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   stepAnimation(dt) {
@@ -2019,7 +2219,7 @@ export class GolfRenderer3D {
       // Drop into the cup
       const e = u * u;
       this.ballGroup.position.set(p1.x, p1.y + BALL_R - e * 0.3, p1.z);
-      this.ballGroup.scale.setScalar(1 - e * 0.45);
+      this.ballGroup.scale.setScalar(1 - e * 0.3);
       this.ballShadow.visible = false;
     } else {
       const x = THREE.MathUtils.lerp(p0.x, p1.x, u);
