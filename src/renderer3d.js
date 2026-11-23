@@ -362,7 +362,6 @@ export class GolfRenderer3D {
       hedge: new RoundedBoxGeometry(0.82, 0.56, 0.82, 4, 0.14),
       topiary: new THREE.SphereGeometry(0.27, 24, 16),
       stal: new THREE.ConeGeometry(s * 0.71, 1, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(0, -0.5, 0),
-      flower: new THREE.SphereGeometry(0.036, 8, 6).scale(1, 0.6, 1),
       stem: new THREE.CylinderGeometry(0.1, 0.13, 0.2, 20).translate(0, 0.1, 0),
       shroom: new THREE.SphereGeometry(0.3, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.72, 1),
       spot: new THREE.SphereGeometry(0.05, 12, 8).scale(1, 0.5, 1),
@@ -438,8 +437,6 @@ export class GolfRenderer3D {
     this.portalDiscs = [];
     this.springs = [];
     this.beams = [];
-    this.flowers = null;
-    this.floraT = 1;
     this.flagCloth = null;
     this.arrowHitMeshes = [];
     this.tileHitMeshes = [];
@@ -781,8 +778,6 @@ export class GolfRenderer3D {
     m.portalA = pool(0x1f9f93, 0xd6fff8);
     m.portalB = pool(0xe57a44, 0xfff1d6);
 
-    m.flower = new THREE.MeshBasicMaterial({ color: 0xffffff });
-
     this.mats = m;
   }
 
@@ -862,7 +857,6 @@ export class GolfRenderer3D {
     this.portalDiscs = [];
     this.springs = [];
     this.beams = [];
-    this.flowers = null;
     this.flagCloth = null;
     this.clearArrows();
 
@@ -870,8 +864,6 @@ export class GolfRenderer3D {
     const s = TILE_SIZE;
     const colGeos = new Map();
     const maxDist = Math.hypot(level.width, level.height) / 2;
-    const flowerSpots = [];
-    const dummy = new THREE.Object3D();
     let maxElev = 0;
 
     for (let y = 0; y < level.height; y++) {
@@ -940,16 +932,7 @@ export class GolfRenderer3D {
           }
         }
 
-        // A few small white flowers, sparingly, kept clear of the middle of the tile
-        const isOpenTurf = cell.terrain === TERRAIN.GRASS && !(x === level.start.x && y === level.start.y);
-        if (isOpenTurf && hash2(x * 1.9, y * 6.7) > 0.72) {
-          const ang = hash2(x * 4.1, y * 8.3) * Math.PI * 2;
-          for (let i = 0; i < 3; i++) {
-            const a = ang + i * 0.5;
-            const rad = 0.33 + hash2(x + i, y + i * 3.1) * 0.1;
-            flowerSpots.push({ x: pos.x + Math.cos(a) * rad, y: pos.y + 0.022, z: pos.z + Math.sin(a) * rad });
-          }
-        }
+        // Turf stays bare: small pale decorations read as shot-preview dots.
 
         // Props
         if (cell.terrain === TERRAIN.WALL) {
@@ -1040,26 +1023,11 @@ export class GolfRenderer3D {
       }
     }
 
-    // Flowers are instanced; they open once the course has finished building.
-    if (flowerSpots.length > 0) {
-      const mesh = this.track(new THREE.InstancedMesh(this.geo.flower, m.flower, flowerSpots.length));
-      flowerSpots.forEach((f, i) => {
-        dummy.position.set(f.x, f.y, f.z);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-      });
-      this.boardGroup.add(mesh);
-      this.flowers = mesh;
-    }
-
     this.maxElev = maxElev;
     this.introT = intro && !this.reducedMotion ? 0 : Infinity;
-    this.floraT = 1;
     if (this.introT === 0) {
       for (const col of this.columns) col.visible = false;
-      this.floraT = 0;
     }
-    if (this.flowers) this.flowers.visible = this.floraT === 1;
     this.placeBallImmediate(ballPos.x, ballPos.y, this.ballElev);
     if (this.introT === 0) this.ballPop = -0.45;
     this.fitCamera();
@@ -1499,15 +1467,6 @@ export class GolfRenderer3D {
         col.position.y = -2.4 * (1 - e);
       }
       if (done) this.introT = Infinity;
-    }
-
-    // Flowers open after the course has built
-    if (this.floraT < 1 && this.introT === Infinity) {
-      this.floraT = Math.min(1, this.floraT + dt * 2.6);
-      if (this.flowers) {
-        this.flowers.visible = true;
-        this.flowers.scale.y = Math.max(0.001, this.floraT);
-      }
     }
 
     // Ball pop-in (new hole, hazard respawn)
