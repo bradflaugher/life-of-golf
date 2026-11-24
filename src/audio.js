@@ -4,13 +4,31 @@ class SoundEngine {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this._suspended = false;
+    this._birdTimer = null;
     try {
       this.muted = localStorage.getItem('life-of-golf:muted') === '1';
     } catch {}
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this.suspend();
+        else this.resume();
+      });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => this.suspend());
+      window.addEventListener('pageshow', () => {
+        if (typeof document === 'undefined' || !document.hidden) this.resume();
+      });
+    }
+  }
+
+  _isHidden() {
+    return typeof document !== 'undefined' && Boolean(document.hidden);
   }
 
   ensure() {
-    if (this.muted) return null;
+    if (this.muted || this._suspended || this._isHidden()) return null;
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
@@ -22,6 +40,33 @@ class SoundEngine {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;
+  }
+
+  suspend() {
+    this._suspended = true;
+    if (this._birdTimer) {
+      clearTimeout(this._birdTimer);
+      this._birdTimer = null;
+    }
+    if (!this.ctx) return;
+    if (this.master) {
+      this.master.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.015);
+    }
+    if (this.ctx.state === 'running') {
+      this.ctx.suspend().catch(() => {});
+    }
+  }
+
+  resume() {
+    this._suspended = false;
+    if (this.muted || this._isHidden() || !this.ctx) return;
+    if (this.master) {
+      this.master.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.04);
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+    if (!this._birdTimer) this.scheduleBirdsong();
   }
 
   // Master bus: a soft limiter plus a short feedback echo, so every blip gets a little arcade air.
@@ -48,9 +93,11 @@ class SoundEngine {
 
   // A songbird somewhere off in the trees: a few quick sine sweeps, every so often.
   scheduleBirdsong() {
+    if (this._birdTimer) clearTimeout(this._birdTimer);
     const wait = 5000 + Math.random() * 9000;
-    setTimeout(() => {
-      if (!this.muted && this.ctx && this.ctx.state === 'running' && !document.hidden) {
+    this._birdTimer = setTimeout(() => {
+      this._birdTimer = null;
+      if (!this.muted && !this._suspended && this.ctx && this.ctx.state === 'running' && !this._isHidden()) {
         const base = 2300 + Math.random() * 1500;
         const notes = 2 + Math.floor(Math.random() * 4);
         for (let i = 0; i < notes; i++) {
@@ -59,7 +106,7 @@ class SoundEngine {
           this.tone(f, 0.07 + Math.random() * 0.05, 'sine', 0.018 + Math.random() * 0.012, up ? f * 1.25 : f * 0.8, i * 0.11);
         }
       }
-      this.scheduleBirdsong();
+      if (!this._suspended) this.scheduleBirdsong();
     }, wait);
   }
 
@@ -68,6 +115,17 @@ class SoundEngine {
     try {
       localStorage.setItem('life-of-golf:muted', this.muted ? '1' : '0');
     } catch {}
+    if (this.muted) {
+      if (this.master && this.ctx) {
+        this.master.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.02);
+      }
+      if (this.ctx && this.ctx.state === 'running') {
+        this.ctx.suspend().catch(() => {});
+      }
+    } else if (!this._suspended && !this._isHidden() && this.ctx) {
+      if (this.master) this.master.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.04);
+      if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    }
   }
 
   tone(freq, dur, type = 'sine', vol = 0.14, slideTo = null, delay = 0) {
