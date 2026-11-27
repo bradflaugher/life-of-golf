@@ -675,6 +675,57 @@ function bindUI() {
   });
   syncMute();
 
+  const canFullscreen = () => {
+    const standalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      window.matchMedia?.('(display-mode: fullscreen)').matches ||
+      window.navigator?.standalone === true;
+    if (standalone) return false;
+    const el = document.documentElement;
+    if (!el.requestFullscreen && !el.webkitRequestFullscreen) return false;
+    if (typeof document.fullscreenEnabled === 'boolean') return document.fullscreenEnabled;
+    if (typeof document.webkitFullscreenEnabled === 'boolean') return document.webkitFullscreenEnabled;
+    return true;
+  };
+  const isFullscreen = () => Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  const syncFullscreen = () => {
+    const btn = $('btn-fullscreen');
+    if (!btn) return;
+    const supported = canFullscreen();
+    btn.classList.toggle('hidden', !supported);
+    if (!supported) return;
+    const active = isFullscreen();
+    btn.innerHTML = icon(active ? 'fullscreenExit' : 'fullscreen');
+    btn.setAttribute('aria-pressed', String(active));
+    btn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+    btn.title = active ? 'Exit Fullscreen (F)' : 'Toggle Fullscreen (F)';
+  };
+  const toggleFullscreen = () => {
+    if (!canFullscreen()) return;
+    try {
+      if (isFullscreen()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        Promise.resolve(exit?.call(document)).catch(() => {});
+      } else {
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        Promise.resolve(req?.call(el)).catch(() => {});
+      }
+    } catch {
+      // browser declined fullscreen
+    }
+  };
+  $('btn-fullscreen')?.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', () => {
+    syncFullscreen();
+    updateInsets();
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    syncFullscreen();
+    updateInsets();
+  });
+  syncFullscreen();
+
   document.querySelectorAll('[data-close]').forEach((btn) => {
     btn.addEventListener('click', () => $(btn.dataset.close).classList.add('hidden'));
   });
@@ -799,6 +850,8 @@ function bindUI() {
       $('btn-caddie').click();
     } else if (e.key === 'm' || e.key === 'M') {
       $('btn-mute').click();
+    } else if (e.key === 'f' || e.key === 'F') {
+      toggleFullscreen();
     } else if (e.key === 'Escape') {
       closeDrawers();
     }
