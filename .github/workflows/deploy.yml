@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -42,13 +42,14 @@ jobs:
           VERSION="${GITHUB_SHA:0:8}"
           mkdir -p _site
           cp index.html favicon.svg site.webmanifest _headers _site/
-          cp -r src models _site/
+          cp -r src models vendor _site/
           sed -i -E "s|(href=\"\./src/style\.css)\"|\1?v=${VERSION}\"|g; s|(src=\"\./src/main\.js)\"|\1?v=${VERSION}\"|g" _site/index.html
           sed -i -E "s|(from '\./[^']+\.js)'|\1?v=${VERSION}'|g" _site/src/*.js
           sed -i -E "s|('\./models/caddie_net\.json)'|\1?v=${VERSION}'|g" _site/src/main.js _site/src/caddie.js
           test -f _site/index.html
           test -f _site/_headers
           test -f _site/models/caddie_net.json
+          test -f _site/vendor/three/three.module.min.js
 
       - name: Publish to Cloudflare Pages
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
