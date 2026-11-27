@@ -676,11 +676,10 @@ function bindUI() {
   syncMute();
 
   const canFullscreen = () => {
-    const standalone =
-      window.matchMedia?.('(display-mode: standalone)').matches ||
+    const alreadyNativeFs =
       window.matchMedia?.('(display-mode: fullscreen)').matches ||
       window.navigator?.standalone === true;
-    if (standalone) return false;
+    if (alreadyNativeFs) return false;
     const el = document.documentElement;
     if (!el.requestFullscreen && !el.webkitRequestFullscreen) return false;
     if (typeof document.fullscreenEnabled === 'boolean') return document.fullscreenEnabled;
@@ -708,22 +707,26 @@ function bindUI() {
         Promise.resolve(exit?.call(document)).catch(() => {});
       } else {
         const el = document.documentElement;
-        const req = el.requestFullscreen || el.webkitRequestFullscreen;
-        Promise.resolve(req?.call(el)).catch(() => {});
+        if (el.requestFullscreen) {
+          Promise.resolve(el.requestFullscreen({ navigationUI: 'hide' }))
+            .catch(() => el.requestFullscreen())
+            .catch(() => {});
+        } else if (el.webkitRequestFullscreen) {
+          Promise.resolve(el.webkitRequestFullscreen()).catch(() => {});
+        }
       }
     } catch {
       // browser declined fullscreen
     }
   };
   $('btn-fullscreen')?.addEventListener('click', toggleFullscreen);
-  document.addEventListener('fullscreenchange', () => {
+  const onFsChange = () => {
     syncFullscreen();
     updateInsets();
-  });
-  document.addEventListener('webkitfullscreenchange', () => {
-    syncFullscreen();
-    updateInsets();
-  });
+    setTimeout(updateInsets, 150);
+  };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
   syncFullscreen();
 
   document.querySelectorAll('[data-close]').forEach((btn) => {
