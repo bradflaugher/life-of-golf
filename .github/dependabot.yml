@@ -1,0 +1,19 @@
+version: 2
+
+# Policy: patch vulnerabilities fast, refresh everything else rarely.
+#
+# - Runtime dependencies (Three.js 0.180.0, fonts, CaddieNet weights) are
+#   vendored directly in the repo so the game is self-contained and long-lived.
+# - Version updates: one PR per quarter for SHA-pinned GitHub Actions, with a
+#   30-day cooldown so broken or hijacked releases are caught and pulled first.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: quarterly
+    cooldown:
+      default-days: 30
+    groups:
+      actions:
+        patterns: ['*']
